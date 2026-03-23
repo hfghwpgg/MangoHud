@@ -225,6 +225,7 @@ struct Tracepoint;
    OVERLAY_PARAM_CUSTOM(gpu_list)                    \
    OVERLAY_PARAM_CUSTOM(fex_stats)                   \
    OVERLAY_PARAM_CUSTOM(ftrace)                      \
+   OVERLAY_PARAM_CUSTOM(cust_label_color)            \
 
 enum overlay_param_position {
    LAYER_POSITION_TOP_LEFT,
@@ -312,7 +313,7 @@ struct overlay_params {
    unsigned cpu_color, gpu_color, vram_color, ram_color,
             engine_color, io_color, frametime_color, background_color,
             text_color, wine_color, battery_color, network_color,
-            horizontal_separator_color;
+            horizontal_separator_color, cust_label_color;
    std::vector<unsigned> gpu_load_color;
    std::vector<unsigned> cpu_load_color;
    std::vector<unsigned> gpu_load_value;

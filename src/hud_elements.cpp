@@ -189,6 +189,7 @@ void HudElements::convert_colors(const struct overlay_params& params)
     HUDElements.colors.fps_value_high = convert(params.fps_color[2]);
     HUDElements.colors.text_outline = convert(params.text_outline_color);
     HUDElements.colors.network = convert(params.network_color);
+    HUDElements.colors.cust_label = convert(params.cust_label_color);
 
     ImGuiStyle& style = ImGui::GetStyle();
     style.Colors[ImGuiCol_PlotLines] = convert(params.frametime_color);
@@ -1942,6 +1943,247 @@ void HudElements::ftrace() {
 #endif // HAVE_FTRACE
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// Custom sensor label/grouping system
+//
+// cust_label starts a new row with label text.
+// Individual cust_ sensors add values to the current row via
+// ImguiNextColumnOrNewRow(), which fills columns left-to-right
+// and wraps to a new row if the table runs out of columns.
+//////////////////////////////////////////////////////////////////////////////
+
+void HudElements::cust_label(){
+    // The label text comes from the function's value field in ordered_functions.
+    // We find ourself in ordered_functions by matching HUDElements.place index.
+    if (HUDElements.place >= 0 && HUDElements.place < (int)HUDElements.ordered_functions.size()) {
+        const auto& label_text = HUDElements.ordered_functions[HUDElements.place].value;
+        ImguiNextColumnFirstItem();
+        HUDElements.TextColored(HUDElements.colors.cust_label, "%s", label_text.c_str());
+    }
+}
+
+void HudElements::cust_gpu_load(){
+    if (!gpus) return;
+    for (auto& gpu : gpus->selected_gpus()) {
+        ImguiNextColumnOrNewRow();
+        auto text_color = HUDElements.colors.text;
+        if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_gpu_load_change]){
+            struct LOAD_DATA gpu_data = {
+                HUDElements.colors.gpu_load_low,
+                HUDElements.colors.gpu_load_med,
+                HUDElements.colors.gpu_load_high,
+                HUDElements.params->gpu_load_value[0],
+                HUDElements.params->gpu_load_value[1]
+            };
+            auto load_color = change_on_load_temp(gpu_data, gpu->metrics.load);
+            right_aligned_text(load_color, HUDElements.ralign_width, "%i", gpu->metrics.load);
+            ImGui::SameLine(0, 1.0f);
+            HUDElements.TextColored(load_color, "%%");
+        } else {
+            right_aligned_text(text_color, HUDElements.ralign_width, "%i", gpu->metrics.load);
+            ImGui::SameLine(0, 1.0f);
+            HUDElements.TextColored(text_color, "%%");
+        }
+    }
+}
+
+void HudElements::cust_gpu_temp(){
+    if (!gpus) return;
+    for (auto& gpu : gpus->selected_gpus()) {
+        ImguiNextColumnOrNewRow();
+        auto text_color = HUDElements.colors.text;
+        if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_temp_fahrenheit])
+            right_aligned_text(text_color, HUDElements.ralign_width, "%i", HUDElements.convert_to_fahrenheit(gpu->metrics.temp));
+        else
+            right_aligned_text(text_color, HUDElements.ralign_width, "%i", gpu->metrics.temp);
+        ImGui::SameLine(0, 1.0f);
+        if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_temp_fahrenheit])
+            HUDElements.TextColored(text_color, "°F");
+        else
+            HUDElements.TextColored(text_color, "°C");
+    }
+}
+
+void HudElements::cust_gpu_junction_temp(){
+    if (!gpus) return;
+    for (auto& gpu : gpus->selected_gpus()) {
+        if (gpu->metrics.junction_temp <= -1) continue;
+        ImguiNextColumnOrNewRow();
+        auto text_color = HUDElements.colors.text;
+        if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_temp_fahrenheit])
+            right_aligned_text(text_color, HUDElements.ralign_width, "%i", HUDElements.convert_to_fahrenheit(gpu->metrics.junction_temp));
+        else
+            right_aligned_text(text_color, HUDElements.ralign_width, "%i", gpu->metrics.junction_temp);
+        ImGui::SameLine(0, 1.0f);
+        if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_temp_fahrenheit])
+            HUDElements.TextColored(text_color, "°F");
+        else
+            HUDElements.TextColored(text_color, "°C");
+        ImGui::SameLine(0, 1.0f);
+        ImGui::PushFont(HUDElements.sw_stats->font_small);
+        HUDElements.TextColored(text_color, "Jnc");
+        ImGui::PopFont();
+    }
+}
+
+void HudElements::cust_gpu_mem_temp(){
+    if (!gpus) return;
+    for (auto& gpu : gpus->selected_gpus()) {
+        if (gpu->metrics.memory_temp <= -1) continue;
+        ImguiNextColumnOrNewRow();
+        auto text_color = HUDElements.colors.text;
+        if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_temp_fahrenheit])
+            right_aligned_text(text_color, HUDElements.ralign_width, "%i", HUDElements.convert_to_fahrenheit(gpu->metrics.memory_temp));
+        else
+            right_aligned_text(text_color, HUDElements.ralign_width, "%i", gpu->metrics.memory_temp);
+        ImGui::SameLine(0, 1.0f);
+        if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_temp_fahrenheit])
+            HUDElements.TextColored(text_color, "°F");
+        else
+            HUDElements.TextColored(text_color, "°C");
+    }
+}
+
+void HudElements::cust_gpu_core_clock(){
+    if (!gpus) return;
+    for (auto& gpu : gpus->selected_gpus()) {
+        ImguiNextColumnOrNewRow();
+        auto text_color = HUDElements.colors.text;
+        right_aligned_text(text_color, HUDElements.ralign_width, "%i", gpu->metrics.CoreClock);
+        ImGui::SameLine(0, 1.0f);
+        ImGui::PushFont(HUDElements.sw_stats->font_small);
+        HUDElements.TextColored(text_color, "MHz");
+        ImGui::PopFont();
+    }
+}
+
+void HudElements::cust_gpu_mem_clock(){
+    if (!gpus) return;
+    for (auto& gpu : gpus->selected_gpus()) {
+        ImguiNextColumnOrNewRow();
+        auto text_color = HUDElements.colors.text;
+        right_aligned_text(text_color, HUDElements.ralign_width, "%i", gpu->metrics.MemClock);
+        ImGui::SameLine(0, 1.0f);
+        ImGui::PushFont(HUDElements.sw_stats->font_small);
+        HUDElements.TextColored(text_color, "MHz");
+        ImGui::PopFont();
+    }
+}
+
+void HudElements::cust_gpu_power(){
+    if (!gpus) return;
+    for (auto& gpu : gpus->selected_gpus()) {
+        ImguiNextColumnOrNewRow();
+        auto text_color = HUDElements.colors.text;
+        char str[16];
+        snprintf(str, sizeof(str), "%.1f", gpu->metrics.powerUsage);
+        if (strlen(str) > 4)
+            right_aligned_text(text_color, HUDElements.ralign_width, "%.0f", gpu->metrics.powerUsage);
+        else
+            right_aligned_text(text_color, HUDElements.ralign_width, "%.1f", gpu->metrics.powerUsage);
+        ImGui::SameLine(0, 1.0f);
+        ImGui::PushFont(HUDElements.sw_stats->font_small);
+        HUDElements.TextColored(text_color, "W");
+        ImGui::PopFont();
+    }
+}
+
+void HudElements::cust_gpu_voltage(){
+    if (!gpus) return;
+    for (auto& gpu : gpus->selected_gpus()) {
+        ImguiNextColumnOrNewRow();
+        auto text_color = HUDElements.colors.text;
+        right_aligned_text(text_color, HUDElements.ralign_width, "%i", gpu->metrics.voltage);
+        ImGui::SameLine(0, 1.0f);
+        ImGui::PushFont(HUDElements.sw_stats->font_small);
+        HUDElements.TextColored(text_color, "mV");
+        ImGui::PopFont();
+    }
+}
+
+void HudElements::cust_gpu_fan(){
+    if (!gpus) return;
+    for (auto& gpu : gpus->selected_gpus()) {
+        if (gpu->is_apu()) continue;
+        ImguiNextColumnOrNewRow();
+        auto text_color = HUDElements.colors.text;
+        right_aligned_text(text_color, HUDElements.ralign_width, "%i", gpu->metrics.fan_speed);
+        ImGui::SameLine(0, 1.0f);
+        if (gpu->metrics.fan_rpm) {
+            ImGui::PushFont(HUDElements.sw_stats->font_small);
+            HUDElements.TextColored(text_color, "RPM");
+        } else {
+            HUDElements.TextColored(text_color, "%%");
+            ImGui::PushFont(HUDElements.sw_stats->font_small);
+            ImGui::SameLine(0, 1.0f);
+            HUDElements.TextColored(text_color, "FAN");
+        }
+        ImGui::PopFont();
+    }
+}
+
+void HudElements::cust_cpu_load(){
+    ImguiNextColumnOrNewRow();
+    auto text_color = HUDElements.colors.text;
+    if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_cpu_load_change]){
+        int cpu_load_percent = int(cpuStats.GetCPUDataTotal().percent);
+        struct LOAD_DATA cpu_data = {
+            HUDElements.colors.cpu_load_low,
+            HUDElements.colors.cpu_load_med,
+            HUDElements.colors.cpu_load_high,
+            HUDElements.params->cpu_load_value[0],
+            HUDElements.params->cpu_load_value[1]
+        };
+        auto load_color = change_on_load_temp(cpu_data, cpu_load_percent);
+        right_aligned_text(load_color, HUDElements.ralign_width, "%d", cpu_load_percent);
+        ImGui::SameLine(0, 1.0f);
+        HUDElements.TextColored(load_color, "%%");
+    } else {
+        right_aligned_text(text_color, HUDElements.ralign_width, "%d", int(cpuStats.GetCPUDataTotal().percent));
+        ImGui::SameLine(0, 1.0f);
+        HUDElements.TextColored(text_color, "%%");
+    }
+}
+
+void HudElements::cust_cpu_temp(){
+    ImguiNextColumnOrNewRow();
+    auto text_color = HUDElements.colors.text;
+    if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_temp_fahrenheit])
+        right_aligned_text(text_color, HUDElements.ralign_width, "%i", HUDElements.convert_to_fahrenheit(cpuStats.GetCPUDataTotal().temp));
+    else
+        right_aligned_text(text_color, HUDElements.ralign_width, "%i", cpuStats.GetCPUDataTotal().temp);
+    ImGui::SameLine(0, 1.0f);
+    if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_temp_fahrenheit])
+        HUDElements.TextColored(text_color, "°F");
+    else
+        HUDElements.TextColored(text_color, "°C");
+}
+
+void HudElements::cust_cpu_mhz(){
+    ImguiNextColumnOrNewRow();
+    auto text_color = HUDElements.colors.text;
+    right_aligned_text(text_color, HUDElements.ralign_width, "%i", cpuStats.GetCPUDataTotal().cpu_mhz);
+    ImGui::SameLine(0, 1.0f);
+    ImGui::PushFont(HUDElements.sw_stats->font_small);
+    HUDElements.TextColored(text_color, "MHz");
+    ImGui::PopFont();
+}
+
+void HudElements::cust_cpu_power(){
+    ImguiNextColumnOrNewRow();
+    auto text_color = HUDElements.colors.text;
+    char str[16];
+    snprintf(str, sizeof(str), "%.1f", cpuStats.GetCPUDataTotal().power);
+    if (strlen(str) > 4)
+        right_aligned_text(text_color, HUDElements.ralign_width, "%.0f", cpuStats.GetCPUDataTotal().power);
+    else
+        right_aligned_text(text_color, HUDElements.ralign_width, "%.1f", cpuStats.GetCPUDataTotal().power);
+    ImGui::SameLine(0, 1.0f);
+    ImGui::PushFont(HUDElements.sw_stats->font_small);
+    HUDElements.TextColored(text_color, "W");
+    ImGui::PopFont();
+}
+
 void HudElements::sort_elements(const std::pair<std::string, std::string>& option) {
     const auto& param = option.first;
     const auto& value = option.second;
@@ -1994,6 +2236,21 @@ void HudElements::sort_elements(const std::pair<std::string, std::string>& optio
         {"display_server", {_display_session}},
         {"fex_stats", {fex_stats}},
         {"ftrace", {ftrace}},
+        // Custom sensor label/grouping system
+        {"cust_label", {cust_label}},
+        {"cust_gpu_load", {cust_gpu_load}},
+        {"cust_gpu_temp", {cust_gpu_temp}},
+        {"cust_gpu_junction_temp", {cust_gpu_junction_temp}},
+        {"cust_gpu_mem_temp", {cust_gpu_mem_temp}},
+        {"cust_gpu_core_clock", {cust_gpu_core_clock}},
+        {"cust_gpu_mem_clock", {cust_gpu_mem_clock}},
+        {"cust_gpu_power", {cust_gpu_power}},
+        {"cust_gpu_voltage", {cust_gpu_voltage}},
+        {"cust_gpu_fan", {cust_gpu_fan}},
+        {"cust_cpu_load", {cust_cpu_load}},
+        {"cust_cpu_temp", {cust_cpu_temp}},
+        {"cust_cpu_mhz", {cust_cpu_mhz}},
+        {"cust_cpu_power", {cust_cpu_power}},
     };
 
     auto check_param = display_params.find(param);
@@ -2022,6 +2279,9 @@ void HudElements::sort_elements(const std::pair<std::string, std::string>& optio
                     SPDLOG_ERROR("Unrecognized graph type: {}", val);
                 }
             }
+        } else if (param == "cust_label") {
+            // cust_label stores the label text in the value field
+            ordered_functions.push_back({cust_label, "cust_label", value});
         } else {
             // Use this to always add to the front of the vector
             // ordered_functions.insert(ordered_functions.begin(), std::make_pair(param, value));

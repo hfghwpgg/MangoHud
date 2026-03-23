@@ -147,10 +147,27 @@ class HudElements{
                 fps_value_med,
                 fps_value_high,
                 text_outline,
-                network;
+                network,
+                cust_label;
         } colors {};
 
         void TextColored(ImVec4 col, const char *fmt, ...);
+
+        // Custom sensor label/grouping functions
+        static void cust_label();
+        static void cust_gpu_load();
+        static void cust_gpu_temp();
+        static void cust_gpu_junction_temp();
+        static void cust_gpu_mem_temp();
+        static void cust_gpu_core_clock();
+        static void cust_gpu_mem_clock();
+        static void cust_gpu_power();
+        static void cust_gpu_voltage();
+        static void cust_gpu_fan();
+        static void cust_cpu_load();
+        static void cust_cpu_temp();
+        static void cust_cpu_mhz();
+        static void cust_cpu_power();
 
         std::array<VkPresentModeKHR, 6> presentModes = {
             VK_PRESENT_MODE_FIFO_RELAXED_KHR,

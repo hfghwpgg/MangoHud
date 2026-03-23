@@ -644,6 +644,8 @@ parse_ftrace(const char *str) {
 #define parse_device_battery(s) parse_str_tokenize(s)
 #define parse_network(s) parse_str_tokenize(s)
 #define parse_gpu_text(s) parse_str_tokenize(s)
+#define parse_cust_label(s) parse_str(s)
+#define parse_cust_label_color(s) parse_color(s)
 
 static bool
 parse_help(const char *str)
@@ -788,6 +790,10 @@ set_parameters_from_options(struct overlay_params *params)
       if (it.first == "preset") {
          continue; // Handled above
       }
+      // Silently skip cust_ prefixed keys (handled by sort_elements)
+      if (it.first.substr(0, 5) == "cust_") {
+         continue;
+      }
       SPDLOG_ERROR("Unknown option '{}'", it.first.c_str());
    }
 }
@@ -836,6 +842,11 @@ parse_overlay_env(struct overlay_params *params,
       OVERLAY_PARAMS
 #undef OVERLAY_PARAM_BOOL
 #undef OVERLAY_PARAM_CUSTOM
+      // Allow cust_ prefixed keys for custom sensor labels/grouping
+      if (strncmp(key, "cust_", 5) == 0) {
+         add_to_options(params, key, value);
+         continue;
+      }
       SPDLOG_ERROR("Unknown option '{}'", key);
    }
    set_parameters_from_options(params);
@@ -910,6 +921,7 @@ static void set_param_defaults(struct overlay_params *params){
    params->font_scale = 1.0f;
    params->wine_color = 0xeb5b5b;
    params->horizontal_separator_color = 0xad64c1;
+   params->cust_label_color = 0x2e9762;
    params->gpu_load_color = { 0x39f900, 0xfdfd09, 0xb22222 };
    params->cpu_load_color = { 0x39f900, 0xfdfd09, 0xb22222 };
    params->font_scale_media_player = 0.55f;
@@ -1054,7 +1066,7 @@ parse_overlay_config(struct overlay_params *params,
       params->font_scale_media_player = 0.55f;
 
    // Convert from 0xRRGGBB to ImGui's format
-   std::array<unsigned *, 24> colors = {
+   std::array<unsigned *, 25> colors = {
       &params->cpu_color,
       &params->gpu_color,
       &params->vram_color,
@@ -1079,6 +1091,7 @@ parse_overlay_config(struct overlay_params *params,
       &params->fps_color[2],
       &params->text_outline_color,
       &params->network_color,
+      &params->cust_label_color,
    };
 
    for (auto color : colors){
