@@ -189,7 +189,15 @@ void HudElements::convert_colors(const struct overlay_params& params)
     HUDElements.colors.fps_value_high = convert(params.fps_color[2]);
     HUDElements.colors.text_outline = convert(params.text_outline_color);
     HUDElements.colors.network = convert(params.network_color);
-    HUDElements.colors.cust_label = convert(params.cust_label_color);
+    HUDElements.colors.cust_label1 = convert(params.cust_label1_color);
+    HUDElements.colors.cust_label2 = convert(params.cust_label2_color);
+    HUDElements.colors.cust_label3 = convert(params.cust_label3_color);
+    HUDElements.colors.cust_label4 = convert(params.cust_label4_color);
+    HUDElements.colors.cust_label5 = convert(params.cust_label5_color);
+    HUDElements.colors.cust_label6 = convert(params.cust_label6_color);
+    HUDElements.colors.cust_label7 = convert(params.cust_label7_color);
+    HUDElements.colors.cust_label8 = convert(params.cust_label8_color);
+    HUDElements.colors.cust_label9 = convert(params.cust_label9_color);
 
     ImGuiStyle& style = ImGui::GetStyle();
     style.Colors[ImGuiCol_PlotLines] = convert(params.frametime_color);
@@ -1952,13 +1960,67 @@ void HudElements::ftrace() {
 // and wraps to a new row if the table runs out of columns.
 //////////////////////////////////////////////////////////////////////////////
 
-void HudElements::cust_label(){
-    // The label text comes from the function's value field in ordered_functions.
-    // We find ourself in ordered_functions by matching HUDElements.place index.
+void HudElements::cust_label1(){
     if (HUDElements.place >= 0 && HUDElements.place < (int)HUDElements.ordered_functions.size()) {
         const auto& label_text = HUDElements.ordered_functions[HUDElements.place].value;
         ImguiNextColumnFirstItem();
-        HUDElements.TextColored(HUDElements.colors.cust_label, "%s", label_text.c_str());
+        HUDElements.TextColored(HUDElements.colors.cust_label1, "%s", label_text.c_str());
+    }
+}
+void HudElements::cust_label2(){
+    if (HUDElements.place >= 0 && HUDElements.place < (int)HUDElements.ordered_functions.size()) {
+        const auto& label_text = HUDElements.ordered_functions[HUDElements.place].value;
+        ImguiNextColumnFirstItem();
+        HUDElements.TextColored(HUDElements.colors.cust_label2, "%s", label_text.c_str());
+    }
+}
+void HudElements::cust_label3(){
+    if (HUDElements.place >= 0 && HUDElements.place < (int)HUDElements.ordered_functions.size()) {
+        const auto& label_text = HUDElements.ordered_functions[HUDElements.place].value;
+        ImguiNextColumnFirstItem();
+        HUDElements.TextColored(HUDElements.colors.cust_label3, "%s", label_text.c_str());
+    }
+}
+void HudElements::cust_label4(){
+    if (HUDElements.place >= 0 && HUDElements.place < (int)HUDElements.ordered_functions.size()) {
+        const auto& label_text = HUDElements.ordered_functions[HUDElements.place].value;
+        ImguiNextColumnFirstItem();
+        HUDElements.TextColored(HUDElements.colors.cust_label4, "%s", label_text.c_str());
+    }
+}
+void HudElements::cust_label5(){
+    if (HUDElements.place >= 0 && HUDElements.place < (int)HUDElements.ordered_functions.size()) {
+        const auto& label_text = HUDElements.ordered_functions[HUDElements.place].value;
+        ImguiNextColumnFirstItem();
+        HUDElements.TextColored(HUDElements.colors.cust_label5, "%s", label_text.c_str());
+    }
+}
+void HudElements::cust_label6(){
+    if (HUDElements.place >= 0 && HUDElements.place < (int)HUDElements.ordered_functions.size()) {
+        const auto& label_text = HUDElements.ordered_functions[HUDElements.place].value;
+        ImguiNextColumnFirstItem();
+        HUDElements.TextColored(HUDElements.colors.cust_label6, "%s", label_text.c_str());
+    }
+}
+void HudElements::cust_label7(){
+    if (HUDElements.place >= 0 && HUDElements.place < (int)HUDElements.ordered_functions.size()) {
+        const auto& label_text = HUDElements.ordered_functions[HUDElements.place].value;
+        ImguiNextColumnFirstItem();
+        HUDElements.TextColored(HUDElements.colors.cust_label7, "%s", label_text.c_str());
+    }
+}
+void HudElements::cust_label8(){
+    if (HUDElements.place >= 0 && HUDElements.place < (int)HUDElements.ordered_functions.size()) {
+        const auto& label_text = HUDElements.ordered_functions[HUDElements.place].value;
+        ImguiNextColumnFirstItem();
+        HUDElements.TextColored(HUDElements.colors.cust_label8, "%s", label_text.c_str());
+    }
+}
+void HudElements::cust_label9(){
+    if (HUDElements.place >= 0 && HUDElements.place < (int)HUDElements.ordered_functions.size()) {
+        const auto& label_text = HUDElements.ordered_functions[HUDElements.place].value;
+        ImguiNextColumnFirstItem();
+        HUDElements.TextColored(HUDElements.colors.cust_label9, "%s", label_text.c_str());
     }
 }
 
@@ -2237,7 +2299,15 @@ void HudElements::sort_elements(const std::pair<std::string, std::string>& optio
         {"fex_stats", {fex_stats}},
         {"ftrace", {ftrace}},
         // Custom sensor label/grouping system
-        {"cust_label", {cust_label}},
+        {"cust_label1", {cust_label1}},
+        {"cust_label2", {cust_label2}},
+        {"cust_label3", {cust_label3}},
+        {"cust_label4", {cust_label4}},
+        {"cust_label5", {cust_label5}},
+        {"cust_label6", {cust_label6}},
+        {"cust_label7", {cust_label7}},
+        {"cust_label8", {cust_label8}},
+        {"cust_label9", {cust_label9}},
         {"cust_gpu_load", {cust_gpu_load}},
         {"cust_gpu_temp", {cust_gpu_temp}},
         {"cust_gpu_junction_temp", {cust_gpu_junction_temp}},
@@ -2279,9 +2349,24 @@ void HudElements::sort_elements(const std::pair<std::string, std::string>& optio
                     SPDLOG_ERROR("Unrecognized graph type: {}", val);
                 }
             }
-        } else if (param == "cust_label") {
-            // cust_label stores the label text in the value field
-            ordered_functions.push_back({cust_label, "cust_label", value});
+        } else if (param == "cust_label1") {
+            ordered_functions.push_back({cust_label1, "cust_label1", value});
+        } else if (param == "cust_label2") {
+            ordered_functions.push_back({cust_label2, "cust_label2", value});
+        } else if (param == "cust_label3") {
+            ordered_functions.push_back({cust_label3, "cust_label3", value});
+        } else if (param == "cust_label4") {
+            ordered_functions.push_back({cust_label4, "cust_label4", value});
+        } else if (param == "cust_label5") {
+            ordered_functions.push_back({cust_label5, "cust_label5", value});
+        } else if (param == "cust_label6") {
+            ordered_functions.push_back({cust_label6, "cust_label6", value});
+        } else if (param == "cust_label7") {
+            ordered_functions.push_back({cust_label7, "cust_label7", value});
+        } else if (param == "cust_label8") {
+            ordered_functions.push_back({cust_label8, "cust_label8", value});
+        } else if (param == "cust_label9") {
+            ordered_functions.push_back({cust_label9, "cust_label9", value});
         } else {
             // Use this to always add to the front of the vector
             // ordered_functions.insert(ordered_functions.begin(), std::make_pair(param, value));

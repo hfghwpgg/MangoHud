@@ -644,8 +644,24 @@ parse_ftrace(const char *str) {
 #define parse_device_battery(s) parse_str_tokenize(s)
 #define parse_network(s) parse_str_tokenize(s)
 #define parse_gpu_text(s) parse_str_tokenize(s)
-#define parse_cust_label(s) parse_str(s)
-#define parse_cust_label_color(s) parse_color(s)
+#define parse_cust_label1(s) parse_str(s)
+#define parse_cust_label1_color(s) parse_color(s)
+#define parse_cust_label2(s) parse_str(s)
+#define parse_cust_label2_color(s) parse_color(s)
+#define parse_cust_label3(s) parse_str(s)
+#define parse_cust_label3_color(s) parse_color(s)
+#define parse_cust_label4(s) parse_str(s)
+#define parse_cust_label4_color(s) parse_color(s)
+#define parse_cust_label5(s) parse_str(s)
+#define parse_cust_label5_color(s) parse_color(s)
+#define parse_cust_label6(s) parse_str(s)
+#define parse_cust_label6_color(s) parse_color(s)
+#define parse_cust_label7(s) parse_str(s)
+#define parse_cust_label7_color(s) parse_color(s)
+#define parse_cust_label8(s) parse_str(s)
+#define parse_cust_label8_color(s) parse_color(s)
+#define parse_cust_label9(s) parse_str(s)
+#define parse_cust_label9_color(s) parse_color(s)
 
 static bool
 parse_help(const char *str)
@@ -921,7 +937,15 @@ static void set_param_defaults(struct overlay_params *params){
    params->font_scale = 1.0f;
    params->wine_color = 0xeb5b5b;
    params->horizontal_separator_color = 0xad64c1;
-   params->cust_label_color = 0x2e9762;
+   params->cust_label1_color = 0x2e9762;
+   params->cust_label2_color = 0x2e9762;
+   params->cust_label3_color = 0x2e9762;
+   params->cust_label4_color = 0x2e9762;
+   params->cust_label5_color = 0x2e9762;
+   params->cust_label6_color = 0x2e9762;
+   params->cust_label7_color = 0x2e9762;
+   params->cust_label8_color = 0x2e9762;
+   params->cust_label9_color = 0x2e9762;
    params->gpu_load_color = { 0x39f900, 0xfdfd09, 0xb22222 };
    params->cpu_load_color = { 0x39f900, 0xfdfd09, 0xb22222 };
    params->font_scale_media_player = 0.55f;
@@ -1066,7 +1090,7 @@ parse_overlay_config(struct overlay_params *params,
       params->font_scale_media_player = 0.55f;
 
    // Convert from 0xRRGGBB to ImGui's format
-   std::array<unsigned *, 25> colors = {
+   std::array<unsigned *, 33> colors = {
       &params->cpu_color,
       &params->gpu_color,
       &params->vram_color,
@@ -1091,7 +1115,15 @@ parse_overlay_config(struct overlay_params *params,
       &params->fps_color[2],
       &params->text_outline_color,
       &params->network_color,
-      &params->cust_label_color,
+      &params->cust_label1_color,
+      &params->cust_label2_color,
+      &params->cust_label3_color,
+      &params->cust_label4_color,
+      &params->cust_label5_color,
+      &params->cust_label6_color,
+      &params->cust_label7_color,
+      &params->cust_label8_color,
+      &params->cust_label9_color,
    };
 
    for (auto color : colors){

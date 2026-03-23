@@ -148,13 +148,29 @@ class HudElements{
                 fps_value_high,
                 text_outline,
                 network,
-                cust_label;
+                cust_label1,
+                cust_label2,
+                cust_label3,
+                cust_label4,
+                cust_label5,
+                cust_label6,
+                cust_label7,
+                cust_label8,
+                cust_label9;
         } colors {};
 
         void TextColored(ImVec4 col, const char *fmt, ...);
 
         // Custom sensor label/grouping functions
-        static void cust_label();
+        static void cust_label1();
+        static void cust_label2();
+        static void cust_label3();
+        static void cust_label4();
+        static void cust_label5();
+        static void cust_label6();
+        static void cust_label7();
+        static void cust_label8();
+        static void cust_label9();
         static void cust_gpu_load();
         static void cust_gpu_temp();
         static void cust_gpu_junction_temp();
