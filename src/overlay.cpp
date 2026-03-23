@@ -699,7 +699,7 @@ void render_imgui(swapchain_stats& data, struct overlay_params& params, ImVec2& 
       if (ImGui::BeginTable("hud", real_params->table_columns, table_flags )) {
          HUDElements.place = 0;
          for (auto& func : HUDElements.ordered_functions){
-            if(!real_params->enabled[OVERLAY_PARAM_ENABLED_horizontal] && func.name != "exec")
+            if(!real_params->enabled[OVERLAY_PARAM_ENABLED_horizontal] && func.name != "exec" && (func.name.find("cust_") != 0 || func.name == "cust_label"))
                ImGui::TableNextRow();
             func.run();
             HUDElements.place += 1;
