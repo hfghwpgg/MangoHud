@@ -69,6 +69,11 @@ class HudElements{
         std::unique_ptr<Shell> shell = nullptr;
 #endif
 
+        bool has_function(const std::string& name) {
+            return std::any_of(ordered_functions.begin(), ordered_functions.end(),
+                               [&name](const Function& f) { return f.name == name; });
+        }
+
         void sort_elements(const std::pair<std::string, std::string>& option);
         void legacy_elements(const overlay_params* temp_params);
         void update_exec();

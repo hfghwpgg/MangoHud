@@ -32,6 +32,14 @@ A Vulkan and OpenGL overlay for monitoring FPS, temperatures, CPU/GPU load and m
     - [Local visualization: `mangoplot`](#local-visualization-mangoplot)
   - [Metrics support by GPU vendor/driver](#metrics-support-by-gpu-vendordriver)
 
+## What is this fork for?
+
+---
+This fork adds custom sensor support to MangoHud, allowing you to add any supported GPU or CPU sensor to the overlay with a custom label without breaking the standard gpu_stats/cpu_stats display. You can also use the custom sensors to create completely custom rows of information.
+For details on how to use this feature, see [CUSTOM_SENSORS.md](CUSTOM_SENSORS.md).
+Motivation for this fork is to have more flexibility in how and what information is displayed. I miss this feature from RTSS on Windows.
+---
+
 ## Installation - Build From Source
 
 ---

@@ -14,20 +14,20 @@ legacy_layout=0
 table_columns=3
 
 # Custom label color (hex RGB, default: 2e9762 = GPU green)
-cust_label_color=2e9762
+cust_label_color1=2e9762
 
 # Line 1: "GPU TEMP" label with edge + junction temps
-cust_label=GPU TEMP
+cust_label1=GPU TEMP
 cust_gpu_temp
 cust_gpu_junction_temp
 
 # Line 2: "GPU CLK" label with core clock + voltage
-cust_label=GPU CLK
+cust_label1=GPU CLK
 cust_gpu_core_clock
 cust_gpu_voltage
 
 # Line 3: "GPU PWR" label with power + fan
-cust_label=GPU PWR
+cust_label2=GPU PWR
 cust_gpu_power
 cust_gpu_fan
 
@@ -40,10 +40,10 @@ frame_timing
 
 ## How It Works
 
-1. `cust_label=<text>` starts a **new HUD row** with the given label text
+1. `cust_label(1-9)=<text>` starts a **new HUD row** with the given label text
 2. Any `cust_*` sensor params that follow fill columns in that same row
 3. When columns are full, sensors wrap to the next row automatically
-4. The next `cust_label` starts a completely new row
+4. The next `cust_label(1-9)` starts a completely new row
 
 ## Available Custom Sensor Names
 
@@ -76,7 +76,7 @@ frame_timing
 
 ```ini
 # Set color for all custom labels (hex RGB)
-cust_label_color=2e9762
+cust_label_color1=2e9762
 ```
 
 Default is `2e9762` (GPU green). This follows the same format as other MangoHud

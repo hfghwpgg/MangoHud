@@ -104,15 +104,20 @@ void update_hw_info(const struct overlay_params& params, uint32_t vendorID)
    auto real_params = get_params();
    if (real_params->enabled[OVERLAY_PARAM_ENABLED_fan])
       update_fan();
-   if (real_params->enabled[OVERLAY_PARAM_ENABLED_cpu_stats] || logger->is_active()) {
+   if (real_params->enabled[OVERLAY_PARAM_ENABLED_cpu_stats]
+       || HUDElements.has_function("cust_cpu_load")
+       || HUDElements.has_function("cust_cpu_temp")
+       || HUDElements.has_function("cust_cpu_mhz")
+       || HUDElements.has_function("cust_cpu_power")
+       || logger->is_active()) {
       cpuStats.UpdateCPUData();
 
 #ifdef __linux__
-      if (real_params->enabled[OVERLAY_PARAM_ENABLED_core_load] || real_params->enabled[OVERLAY_PARAM_ENABLED_cpu_mhz] || logger->is_active())
+      if (real_params->enabled[OVERLAY_PARAM_ENABLED_core_load] || real_params->enabled[OVERLAY_PARAM_ENABLED_cpu_mhz] || HUDElements.has_function("cust_cpu_mhz") || logger->is_active())
          cpuStats.UpdateCoreMhz();
-      if (real_params->enabled[OVERLAY_PARAM_ENABLED_cpu_temp] || logger->is_active() || real_params->enabled[OVERLAY_PARAM_ENABLED_graphs])
+      if (real_params->enabled[OVERLAY_PARAM_ENABLED_cpu_temp] || logger->is_active() || real_params->enabled[OVERLAY_PARAM_ENABLED_graphs] || HUDElements.has_function("cust_cpu_temp"))
          cpuStats.UpdateCpuTemp();
-      if (real_params->enabled[OVERLAY_PARAM_ENABLED_cpu_power] || logger->is_active())
+      if (real_params->enabled[OVERLAY_PARAM_ENABLED_cpu_power] || HUDElements.has_function("cust_cpu_power") || logger->is_active())
          cpuStats.UpdateCpuPower();
 #endif
    }
