@@ -73,12 +73,24 @@ static std::vector<std::string> blacklist_engine {
     "GTK"
 };
 
+// hack for rnote bug thats fixed by locking 120 fps
+static std::vector<std::string> whitelist {
+    "rnote"
+};
+
 static bool check_blacklisted() {
     std::string proc_name = get_proc_name();
     std::string engine_name = global_engine_name;
     global_proc_name = proc_name;
+
+    // hack
+    if (std::find(whitelist.begin(), whitelist.end(), proc_name) != whitelist.end()) {
+        return false;
+    }
+    
     bool blacklisted = std::find(blacklist.begin(), blacklist.end(), proc_name) != blacklist.end();
     blacklisted |= std::find(blacklist_engine.begin(), blacklist_engine.end(), engine_name) != blacklist_engine.end();
+
 
     static bool printed = false;
     if(blacklisted && !printed) {
