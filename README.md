@@ -1,3 +1,4 @@
+# this fork is now obsolete, use official mangohud-next instead
 # MangoHud
 
 A Vulkan and OpenGL overlay for monitoring FPS, temperatures, CPU/GPU load and more.
@@ -730,7 +731,7 @@ Example output:
 #### Intel notes
 - GPU temperature for `i915` requires **linux 6.13+**
 - Fan speed for `i915` requires **linux 6.12+**
-- GPU temperature and vram temperature for `xe` requires **linux 6.15+** 
+- GPU temperature and vram temperature for `xe` requires **linux 6.15+**
 - Fan speed for `xe` requires **linux 6.16+**
 - GPU usage and memory usage shows usage of current process, not total system usage (it's an issue on intel's side)
   - https://gitlab.freedesktop.org/drm/i915/kernel/-/issues/14153
