@@ -7,6 +7,7 @@
 #include "amdgpu/amdgpu.hpp"
 #include "nvidia/nvidia.hpp"
 #include "panfrost.hpp"
+#include "panthor.hpp"
 #include "msm/dpu.hpp"
 #include "msm/kgsl.hpp"
 #include "../common/helpers.hpp"
@@ -94,6 +95,8 @@ GPUS::GPUS() {
             }
         } else if (driver == "panfrost") {
             gpu = std::make_shared<Panfrost>(drm_node, pci_dev, vendor_id, device_id);
+        } else if (driver == "panthor") {
+            gpu = std::make_shared<Panthor>(drm_node, pci_dev, vendor_id, device_id);
         } else if (driver == "msm_dpu") {
             gpu = std::make_shared<MSM_DPU>(drm_node, pci_dev, vendor_id, device_id);
         } else if (driver == "msm_drm") {
@@ -106,8 +109,6 @@ GPUS::GPUS() {
             std::lock_guard lock(available_gpus_m);
             available_gpus.push_back(gpu);
         }
-        gpu->start_thread_worker();
-
         // if (params->gpu_list.size() == 1 && params->gpu_list[0] == idx++)
         //     gpu->is_active = true;
 
@@ -203,64 +204,91 @@ void GPU::poll() {
     while (!stop_thread) {
         SPDLOG_TRACE("poll()");
 
-        auto current_time = std::chrono::steady_clock::now();
-        delta_time_ns = current_time - previous_time;
-        previous_time = current_time;
+        SystemMetricsBuffer sys_metrics_buffer = {};
+        std::map<pid_t, ProcessMetricsBuffer> proc_metrics_buffers;
+        size_t samples = 0;
 
-        pre_poll_overrides();
+        for (auto& sys_metrics : sys_metrics_buffer) {
+            if (stop_thread)
+                break;
 
-        gpu_metrics_system_t cur_sys_metrics = {
-            .load                   = get_load(),
+            auto current_time = std::chrono::steady_clock::now();
+            delta_time_ns = current_time - previous_time;
+            previous_time = current_time;
 
-            .vram_used              = get_vram_used(),
-            .gtt_used               = get_gtt_used(),
-            .memory_total           = get_memory_total(),
-            .memory_clock           = get_memory_clock(),
-            .memory_temp            = get_memory_temp(),
+            pre_poll_overrides();
 
-            .temperature            = get_temperature(),
-            .junction_temperature   = get_junction_temperature(),
+            sys_metrics = {
+                .load                   = get_load(),
 
-            .core_clock             = get_core_clock(),
-            .voltage                = get_voltage(),
+                .vram_used              = get_vram_used(),
+                .gtt_used               = get_gtt_used(),
+                .memory_total           = get_memory_total(),
+                .memory_clock           = get_memory_clock(),
+                .memory_temp            = get_memory_temp(),
 
-            .power_usage            = get_power_usage(),
-            .power_limit            = get_power_limit(),
+                .temperature            = get_temperature(),
+                .junction_temperature   = get_junction_temperature(),
 
-            .is_apu                 = get_is_apu(),
-            .apu_cpu_power          = get_apu_cpu_power(),
-            .apu_cpu_temp           = get_apu_cpu_temp(),
+                .core_clock             = get_core_clock(),
+                .voltage                = get_voltage(),
 
-            .is_power_throttled     = get_is_power_throttled(),
-            .is_current_throttled   = get_is_current_throttled(),
-            .is_temp_throttled      = get_is_temp_throttled(),
-            .is_other_throttled     = get_is_other_throttled(),
+                .power_usage            = get_power_usage(),
+                .power_limit            = get_power_limit(),
 
-            .fan_speed              = get_fan_speed(),
-            .fan_rpm                = get_fan_rpm()
-        };
+                .is_apu                 = get_is_apu(),
+                .apu_cpu_power          = get_apu_cpu_power(),
+                .apu_cpu_temp           = get_apu_cpu_temp(),
 
-        check_pids_existence();
+                .is_power_throttled     = get_is_power_throttled(),
+                .is_current_throttled   = get_is_current_throttled(),
+                .is_temp_throttled      = get_is_temp_throttled(),
+                .is_other_throttled     = get_is_other_throttled(),
 
-        std::map<pid_t, gpu_metrics_process_t> cur_proc_metrics = process_metrics;
+                .fan_speed              = get_fan_speed(),
+                .fan_rpm                = get_fan_rpm()
+            };
 
-        for (auto& p : cur_proc_metrics) {
-            pid_t pid = p.first;
-            gpu_metrics_process_t* m = &p.second;
+            std::vector<pid_t> pids;
+            {
+                std::unique_lock proc_lock(process_metrics_mutex);
+                check_pids_existence();
+                pids.reserve(process_metrics.size());
+                for (const auto& p : process_metrics)
+                    pids.push_back(p.first);
+            }
 
-            m->load = get_process_load(pid);
-            m->vram_used = get_process_vram_used(pid);
-            m->gtt_used = get_process_gtt_used(pid);
+            for (pid_t pid : pids) {
+                proc_metrics_buffers[pid][samples] = {
+                    .load = get_process_load(pid),
+                    .vram_used = get_process_vram_used(pid),
+                    .gtt_used = get_process_gtt_used(pid)
+                };
+            }
+
+            samples++;
+
+            if (samples >= gpu_metrics_sample_count)
+                continue;
+
+            auto elapsed = std::chrono::steady_clock::now() - current_time;
+            if (elapsed < gpu_metrics_polling_period)
+                std::this_thread::sleep_for(gpu_metrics_polling_period - elapsed);
         }
+
+        if (!samples || stop_thread)
+            return;
 
         {
             std::unique_lock sys_lock(system_metrics_mutex);
-            std::unique_lock proc_lock(process_metrics_mutex);
-            system_metrics = cur_sys_metrics;
-            process_metrics = cur_proc_metrics;
+            system_metrics = average_system_metrics(sys_metrics_buffer, samples);
         }
 
-        std::this_thread::sleep_for(1s);
+        {
+            std::unique_lock proc_lock(process_metrics_mutex);
+            for (const auto& [pid, metrics_buffer] : proc_metrics_buffers)
+                process_metrics[pid] = average_process_metrics(metrics_buffer, samples);
+        }
     }
 }
 
@@ -288,9 +316,7 @@ int GPU::renderer() const {
 }
 
 GPU::~GPU() {
-    stop_thread = true;
-    if (worker_thread.joinable())
-        worker_thread.join();
+    stop_polling();
 }
 
 void GPU::add_pid(pid_t pid) {
@@ -372,4 +398,41 @@ void GPU::start_thread_worker() {
         );
 
     pthread_setname_np(worker_thread.native_handle(), worker_thread_name.c_str());
+}
+
+void GPU::request_polling() {
+    std::lock_guard lock(worker_mutex);
+    last_poll_request = std::chrono::steady_clock::now();
+    if (worker_thread.joinable())
+        return;
+
+    stop_thread = false;
+    start_thread_worker();
+}
+
+void GPU::stop_polling() {
+    std::lock_guard lock(worker_mutex);
+    if (!worker_thread.joinable())
+        return;
+
+    stop_thread = true;
+    worker_thread.join();
+}
+
+void GPU::stop_polling_if_idle(std::chrono::steady_clock::time_point now,
+                               std::chrono::nanoseconds idle_timeout) {
+    std::lock_guard lock(worker_mutex);
+    if (!worker_thread.joinable())
+        return;
+
+    if (now - last_poll_request < idle_timeout)
+        return;
+
+    stop_thread = true;
+    worker_thread.join();
+}
+
+bool GPU::polling_active() const {
+    std::lock_guard lock(worker_mutex);
+    return worker_thread.joinable();
 }

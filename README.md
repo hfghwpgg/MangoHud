@@ -569,6 +569,7 @@ Example output:
 		<th colspan="2">Intel Discrete</th>
 		<th>Intel Integrated</th>
 		<th>Panfrost/Panthor driver</th>
+		<th colspan="2">Qualcomm</th>
 	</tr>
 	<tr>
 		<th></th>
@@ -578,9 +579,13 @@ Example output:
 		<th>xe</th>
 		<th>i915/xe</th>
 		<th></th>
+		<th>msm_drm (kgsl)</th>
+		<th>msm_dpu</th>
 	</tr>
 	<tr>
 		<td>Usage%</td>
+		<td>🟢</td>
+		<td>🟢</td>
 		<td>🟢</td>
 		<td>🟢</td>
 		<td>🟢</td>
@@ -596,11 +601,15 @@ Example output:
 		<td>🟢</td>
 		<td>🔴</td>
 		<td>🟢</td>
+		<td>🟢</td>
+		<td>🟢</td>
 	</tr>
 	<tr>
 		<td>Junction Temperature</td>
 		<td>🔴</td>
 		<td>🟢</td>
+		<td>🔴</td>
+		<td>🔴</td>
 		<td>🔴</td>
 		<td>🔴</td>
 		<td>🔴</td>
@@ -614,6 +623,8 @@ Example output:
 		<td>🟢</td>
 		<td>🔴</td>
 		<td>🔴</td>
+		<td>🔴</td>
+		<td>🔴</td>
 	</tr>
 	<tr>
 		<td>Process VRAM</td>
@@ -623,11 +634,15 @@ Example output:
 		<td>🟢</td>
 		<td>🟢</td>
 		<td>🟢</td>
+		<td>🔴</td>
+		<td>🟢</td>
 	</tr>
 	<tr>
 		<td>System VRAM</td>
 		<td>🟢</td>
 		<td>🟢</td>
+		<td>🔴</td>
+		<td>🔴</td>
 		<td>🔴</td>
 		<td>🔴</td>
 		<td>🔴</td>
@@ -641,11 +656,15 @@ Example output:
 		<td>🔴</td>
 		<td>🔴</td>
 		<td>🔴</td>
+		<td>🔴</td>
+		<td>🔴</td>
 	</tr>
 	<tr>
 		<td>Memory Clock</td>
 		<td>🟢</td>
 		<td>🟢</td>
+		<td>🔴</td>
+		<td>🔴</td>
 		<td>🔴</td>
 		<td>🔴</td>
 		<td>🔴</td>
@@ -659,6 +678,8 @@ Example output:
 		<td>🟢</td>
 		<td>🟢</td>
 		<td>🟢</td>
+		<td>🟢</td>
+		<td>🔴</td>
 	</tr>
 	<tr>
 		<td>Power Usage</td>
@@ -666,6 +687,8 @@ Example output:
 		<td>🟢</td>
 		<td>🟢</td>
 		<td>🟢</td>
+		<td>🔴</td>
+		<td>🔴</td>
 		<td>🔴</td>
 		<td>🔴</td>
 	</tr>
@@ -677,6 +700,8 @@ Example output:
 		<td>🟢</td>
 		<td>🟢</td>
 		<td>🔴</td>
+		<td>🔴</td>
+		<td>🔴</td>
 	</tr>
 	<tr>
 		<td>Fan Speed</td>
@@ -686,6 +711,8 @@ Example output:
 		<td>🟢</td>
 		<td>🔴</td>
 		<td>🔴</td>
+		<td>🔴</td>
+		<td>🔴</td>
 	</tr>
 	<tr>
 		<td>Voltage</td>
@@ -693,6 +720,8 @@ Example output:
 		<td>🟢</td>
 		<td>🟢</td>
 		<td>🟢</td>
+		<td>🔴</td>
+		<td>🔴</td>
 		<td>🔴</td>
 		<td>🔴</td>
 	</tr>
@@ -711,3 +740,6 @@ Example output:
 #### Panfrost and Panthor notes
 - GPU usage requires `echo N | sudo tee /sys/class/drm/renderD*/device/profiling`
   - Where N is a number, 1 for panfrost and 3 for panthor.
+
+#### Qualcomm notes
+- GPU usage on `msm_dpu` shows usage of the current process, not total system usage

@@ -817,7 +817,7 @@ set_parameters_from_options(struct overlay_params *params)
 
 static void
 parse_overlay_env(struct overlay_params *params,
-                  const char *env, bool use_existing_preset)
+                  const char *env, bool use_existing_preset, bool apply_preset = true)
 {
    const char *env_start = env;
 
@@ -836,7 +836,8 @@ parse_overlay_env(struct overlay_params *params,
       }
    }
 
-   presets(current_preset, params);
+   if (apply_preset)
+      presets(current_preset, params);
    env = env_start;
 
    while ((num = parse_string(env, key, value)) != 0) {
@@ -1077,7 +1078,7 @@ parse_overlay_config(struct overlay_params *params,
 
    if (env && read_cfg) {
       HUDElements.ordered_functions.clear();
-      parse_overlay_env(params, env, true);
+      parse_overlay_env(params, env, true, false);
    }
 
    // If fps_only param is enabled disable legacy_layout

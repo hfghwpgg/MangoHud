@@ -92,6 +92,7 @@ void Client::init(std::shared_ptr<Client>& shared) {
 
     setup_handshake("on_connect", &handshake_slot, &Client::on_connect, shared);
     setup_handshake("frame_samples", &frame_samples_slot, &Client::frame_samples, shared);
+    setup_handshake("resolution", &resolution_slot, &Client::resolution, shared);
     setup_handshake("spdlog", &spdlog_slot, &Client::spdlog_msg, shared);
     setup_handshake("frame_ready", &frame_slot, &Client::on_frame, shared);
     setup_handshake("import_failed", &import_failed_slot,
@@ -158,8 +159,8 @@ void Client::init(std::shared_ptr<Client>& shared) {
         });
     }
 
-    thread = std::thread([self = shared] { self->dbus_thread(); });
-    run_t  = std::thread([self = shared] { self->run(); });
+    thread = std::thread([this] { dbus_thread(); });
+    run_t = std::thread([this] { run(); });
 }
 
 int Client::on_stop_event(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
@@ -196,7 +197,6 @@ int Client::on_bus_disconnected(sd_bus_message *m, void *userdata, sd_bus_error 
 
 void Client::dbus_thread() {
     pthread_setname_np(pthread_self(), ("c_dbus " + std::to_string(pid)).substr(0, 15).c_str());
-    send_config();
 
     int r = sd_event_loop(event);
     if (r < 0 && !stop.load())
@@ -251,17 +251,46 @@ int Client::on_connect(sd_bus_message* m, void* userdata, sd_bus_error* ret_erro
     }
 
     const char* engine = "";
+    const char* vulkan_driver = "";
+    const char* gpu_name = "";
     int32_t raw_api = 0;
-    r = sd_bus_message_read(m, "sxii", &engine, &self->renderMinor, &self->buffer_size, &raw_api);
+    r = sd_bus_message_read(m, "sxiiss", &engine, &self->renderMinor, &self->buffer_size, &raw_api, &vulkan_driver, &gpu_name);
     if (r < 0) {
-        SPDLOG_ERROR("on_connect append(sxii) {} ({})", r, strerror(-r));
+        SPDLOG_ERROR("on_connect append(sxiiss) {} ({})", r, strerror(-r));
         self->set_dead();
         return false;
     }
     self->pEngineName = engine;
+    self->vulkanDriver = vulkan_driver;
+    self->gpuName = gpu_name;
     self->resources->api = static_cast<Backend>(raw_api);
 
+    self->send_config();
+
     return 0;
+}
+
+int Client::resolution(sd_bus_message* m, void* userdata, sd_bus_error*) {
+    auto* w = static_cast<std::weak_ptr<Client>*>(userdata);
+    auto self = w->lock();
+    if (!self)
+        return 0;
+
+    uint32_t width = 0;
+    uint32_t height = 0;
+    int r = sd_bus_message_read(m, "uu", &width, &height);
+    if (r < 0) {
+        SPDLOG_ERROR("resolution: read {} ({})", r, strerror(-r));
+        return 0;
+    }
+
+    {
+        std::lock_guard lock(self->m);
+        self->resolutionWidth = width;
+        self->resolutionHeight = height;
+    }
+
+    return sd_bus_reply_method_return(m, "");
 }
 
 void Client::send_dmabuf(){
@@ -419,6 +448,7 @@ void Client::send_config() {
             SPDLOG_DEBUG("failed to send message {}", r);
             return r;
         }
+        sd_bus_flush(self->bus);
         return 0;
     });
 }
@@ -516,7 +546,7 @@ void Client::run() {
         if (!renderer)
             renderer = std::make_unique<Renderer>(server, resources.get(), renderMinor, buffer_size);
 
-        if (!resources->table)
+        if (!resources->hud)
             return;
 
         if (resources->send_dmabuf)
@@ -552,6 +582,7 @@ Client::~Client() {
 
     sd_bus_slot_unref(handshake_slot);
     sd_bus_slot_unref(frame_samples_slot);
+    sd_bus_slot_unref(resolution_slot);
     sd_bus_slot_unref(spdlog_slot);
     sd_bus_slot_unref(frame_slot);
     sd_bus_slot_unref(import_failed_slot);
@@ -606,6 +637,12 @@ void Client::stop_and_join() {
     }
     if (run_t.joinable()) {
         run_t.join();
+    }
+
+    std::queue<std::packaged_task<void()>> drain;
+    {
+        std::lock_guard<std::mutex> lock(work_mtx);
+        work_q.swap(drain);
     }
 }
 

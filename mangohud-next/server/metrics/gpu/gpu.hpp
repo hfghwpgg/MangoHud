@@ -42,6 +42,11 @@ public:
     void add_pid(pid_t pid);
     void print_metrics();
     void start_thread_worker();
+    void request_polling();
+    void stop_polling();
+    void stop_polling_if_idle(std::chrono::steady_clock::time_point now,
+                              std::chrono::nanoseconds idle_timeout);
+    bool polling_active() const;
 
     virtual gpu_metrics_system_t get_system_metrics();
     virtual std::map<pid_t, gpu_metrics_process_t> get_process_metrics();
@@ -53,6 +58,8 @@ protected:
 
     std::thread worker_thread;
     const std::string worker_thread_name;
+    mutable std::mutex worker_mutex;
+    std::chrono::time_point<std::chrono::steady_clock> last_poll_request;
 
     std::chrono::time_point<std::chrono::steady_clock> previous_time;
     std::chrono::nanoseconds delta_time_ns;

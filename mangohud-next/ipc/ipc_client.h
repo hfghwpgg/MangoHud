@@ -17,58 +17,52 @@ class spdlogSink;
 class Layer;
 class IPCClient {
 public:
-    std::atomic<bool> needs_import{false};
+    std::atomic<uint64_t> import_generation{0};
     std::atomic<bool> connected{false};
     std::mutex m;
     Fdinfo fdinfo;
     float fps_limit = 0;
     int64_t renderMinor = 0;
     std::string pEngineName;
+    std::string vulkanDriver;
+    std::string gpuName;
     int buffer_size = 0;
 
     IPCClient(Layer* layer_ = nullptr, Backend api_ = Backend::NONE);
 
-    void start(int64_t renderMinor, std::string& pEngineName, int image_count, std::shared_ptr<IPCClient> shared);
+    void start(int image_count);
 
     bool init();
     void stop();
 
     void add_to_queue(uint64_t now) {
-        {
-            static uint64_t seq;
-            std::unique_lock lock(samples_mtx);
-            samples.push_back({seq, now});
-            seq++;
-        }
-
-        if (last_push == 0) {
-            last_push = now;
-            return;
-        }
-
-        if (now - last_push >= 4'000'000) {
-            push_queue();
-            // wake_up_fd(wake_fd);
-            last_push = now;
-        }
+        static uint64_t seq;
+        std::unique_lock lock(samples_mtx);
+        samples.push_back({seq, now});
+        seq++;
     }
 
-    void drain_queue();
     int push_queue();
     bool on_connect();
+    void send_resolution(uint32_t width, uint32_t height);
     void send_spdlog(const int level, const char* file, const int line, const std::string& text);
     void send_import_failed();
     void send_semaphores(std::vector<int> sema);
     void frame_ready(uint32_t idx, int fd);
+    void clear_frames() {
+        std::lock_guard lock(sync_mtx);
+        frame_queue.clear();
+    }
+
     int next_frame() {
         std::lock_guard lock(sync_mtx);
         if (frame_queue.empty())
             return -1;
 
-        ready_frame& frame = frame_queue.front();
-        if (sync_fd_signaled(frame.fd.get())) {
+        if (sync_fd_signaled(frame_queue.front().fd.get())) {
+            int idx = frame_queue.front().idx;
             frame_queue.pop_front();
-            return frame.idx;
+            return idx;
         }
 
         return -1;
@@ -97,9 +91,9 @@ private:
     sd_bus_slot* config_slot = nullptr;
     sd_bus_slot* frame_slot = nullptr;
     sd_bus_slot* incompatible_slot = nullptr;
+    sd_bus_slot* disconnected_slot = nullptr;
     int wake_fd = -1;
     int socket_fd = -1;
-    uint64_t last_push = 0;
     std::shared_ptr<spdlog::logger> logger;
     std::deque<ready_frame> frame_queue;
     int work_eventfd = -1;
@@ -107,16 +101,22 @@ private:
     std::queue<std::packaged_task<void()>> work_q;
     sd_event* event = nullptr;
     sd_event_source* work_src = nullptr;
+    uint32_t resolution_width = 0;
+    uint32_t resolution_height = 0;
+    uint32_t sent_resolution_width = 0;
+    uint32_t sent_resolution_height = 0;
 
     static int on_dmabuf(sd_bus_message* m, void* userdata, sd_bus_error* ret_error);
     static int on_config(sd_bus_message* m, void* userdata, sd_bus_error* ret_error);
     static int on_frame(sd_bus_message* m, void* userdata, sd_bus_error*);
     static int on_incompatible(sd_bus_message* m, void* userdata, sd_bus_error*);
+    static int on_bus_disconnected(sd_bus_message* m, void* userdata, sd_bus_error*);
     void bus_thread();
     static int on_server_owner_changed(sd_bus_message* m, void* userdata, sd_bus_error*);
     bool connect_bus();
     void disconnect_bus();
     void run_bus();
+    bool send_resolution_signal(uint32_t width, uint32_t height);
     int request_fd_from_server();
     static int on_work_event(sd_event_source *s, int fd, uint32_t revents, void *userdata);
     template <class F>
@@ -132,8 +132,6 @@ private:
     }
     void sync_wait();
 };
-
-extern std::shared_ptr<IPCClient> ipc;
 
 class spdlogSink final : public spdlog::sinks::base_sink<std::mutex>  {
 public:
