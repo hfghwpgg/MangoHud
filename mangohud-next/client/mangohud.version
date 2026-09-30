@@ -6,6 +6,7 @@
     vkNegotiateLoaderLayerInterfaceVersion;
     glX*;
     egl*;
+    wl_proxy_marshal_array_flags;
     dlsym;
     mangohud_find_glx_ptr;
     mangohud_find_egl_ptr;

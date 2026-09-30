@@ -9,6 +9,8 @@ project('MangoHud',
 cc = meson.get_compiler('c')
 cpp = meson.get_compiler('cpp')
 
+add_global_arguments('-DFMT_CONSTEVAL=', language: 'cpp')
+
 prog_python = import('python').find_installation('python3', modules: ['mako'])
 null_dep = dependency('', required : false)
 vcs_tag_command = ['git', 'describe', '--tags', '--dirty=+']
@@ -310,6 +312,10 @@ if get_option('mangoapp')
   glfw3_dep = dependency('glfw3')
 endif
 
+libdrm_dep = dependency('libdrm')
+libcap_dep = dependency('libcap')
+
+subdir('mangohud-next/legacy_gpu_wrapper')
 subdir('src')
 
 if get_option('include_doc')

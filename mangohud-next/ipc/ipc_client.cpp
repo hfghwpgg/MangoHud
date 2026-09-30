@@ -461,6 +461,7 @@ int IPCClient::push_queue() {
     }
 
     post([this, out = std::move(out)] {
+        auto focused_seats = this->focused_seats.load();
         sd_bus_message* m = nullptr;
 
         int r = sd_bus_message_new_signal(bus, &m, kObjPath, kIface, "frame_samples");
@@ -469,15 +470,38 @@ int IPCClient::push_queue() {
             return r;
         }
 
-        r = sd_bus_message_open_container(m, 'a', "(tt)");
+        r = sd_bus_message_open_container(m, 'a', "s");
+        if (r < 0) {
+            SPDLOG_ERROR("push_queue: open focused seats {} ({})", r, strerror(-r));
+            sd_bus_message_unref(m);
+            return r;
+        }
+
+        for (const auto& seat : *focused_seats) {
+            r = sd_bus_message_append(m, "s", seat.c_str());
+            if (r < 0) {
+                SPDLOG_ERROR("push_queue: append focused seat {} ({})", r, strerror(-r));
+                sd_bus_message_unref(m);
+                return r;
+            }
+        }
+
+        r = sd_bus_message_close_container(m);
+        if (r < 0) {
+            SPDLOG_ERROR("push_queue: close focused seats {} ({})", r, strerror(-r));
+            sd_bus_message_unref(m);
+            return r;
+        }
+
+        r = sd_bus_message_open_container(m, 'a', "(ytt)");
         if (r < 0) {
             SPDLOG_ERROR("push_queue: open_container {} ({})", r, strerror(-r));
             sd_bus_message_unref(m);
             return r;
         }
 
-        for (auto& [seq, now] : out) {
-            r = sd_bus_message_append(m, "(tt)", (uint64_t)seq, (uint64_t)now);
+        for (auto& [type, seq, now] : out) {
+            r = sd_bus_message_append(m, "(ytt)", (uint8_t)type, (uint64_t)seq, (uint64_t)now);
             if (r < 0) {
                 SPDLOG_ERROR("push_queue: append {} ({})", r, strerror(-r));
                 sd_bus_message_unref(m);

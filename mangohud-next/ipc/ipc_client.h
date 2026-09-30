@@ -5,6 +5,9 @@
 #include <atomic>
 #include <thread>
 #include <string>
+#include <utility>
+#include <vector>
+#include <memory>
 #include <mutex>
 #include <future>
 #include <spdlog/spdlog.h>
@@ -36,10 +39,28 @@ public:
     void stop();
 
     void add_to_queue(uint64_t now) {
-        static uint64_t seq;
-        std::unique_lock lock(samples_mtx);
-        samples.push_back({seq, now});
-        seq++;
+        {
+            static uint64_t frame_seq = 0;
+            std::unique_lock lock(samples_mtx);
+            samples.push_back({SampleType::Frame, frame_seq, now});
+            frame_seq++;
+        }
+    }
+
+    void add_to_queue(SampleType type, uint64_t seq, uint64_t now) {
+        {
+            std::unique_lock lock(samples_mtx);
+            samples.push_back({type, seq, now});
+        }
+    }
+
+    bool set_focused_seats(std::vector<std::string> seats) {
+        auto current = focused_seats.load();
+        if (current && *current == seats)
+            return false;
+
+        focused_seats.store(std::make_shared<const std::vector<std::string>>(std::move(seats)));
+        return true;
     }
 
     int push_queue();
@@ -80,6 +101,8 @@ private:
     std::thread thread;
     std::deque<Sample> samples;
     std::mutex samples_mtx;
+    std::atomic<std::shared_ptr<const std::vector<std::string>>> focused_seats{
+        std::make_shared<const std::vector<std::string>>()};
     std::mutex sync_mtx;
     std::atomic<bool> stop_wait {false};
     std::thread wait_thread;

@@ -264,6 +264,8 @@ int Client::on_connect(sd_bus_message* m, void* userdata, sd_bus_error* ret_erro
     self->vulkanDriver = vulkan_driver;
     self->gpuName = gpu_name;
     self->resources->api = static_cast<Backend>(raw_api);
+    if (self->server && self->server->metrics)
+        self->server->metrics->add_client_pid(self->pid);
 
     self->send_config();
 
@@ -459,41 +461,55 @@ int Client::frame_samples(sd_bus_message* m, void* userdata, sd_bus_error* ret_e
     if (!self)
         return 0;
 
-    int r = sd_bus_message_enter_container(m, 'a', "(tt)");
+    std::vector<std::string> focused_seats;
+    int r = sd_bus_message_enter_container(m, 'a', "s");
+    if (r < 0) {
+        SPDLOG_ERROR("frame_samples: enter focused seats {} ({})", r, strerror(-r));
+        return r;
+    }
+
+    for (;;) {
+        const char* seat = nullptr;
+        r = sd_bus_message_read(m, "s", &seat);
+        if (r < 0) {
+            SPDLOG_ERROR("frame_samples: read focused seat {} ({})", r, strerror(-r));
+            return r;
+        }
+        if (r == 0)
+            break;
+        if (seat)
+            focused_seats.emplace_back(seat);
+    }
+
+    r = sd_bus_message_exit_container(m);
+    if (r < 0) {
+        SPDLOG_ERROR("frame_samples: exit focused seats {} ({})", r, strerror(-r));
+        return r;
+    }
+
+    r = sd_bus_message_enter_container(m, 'a', "(ytt)");
+    if (r < 0) {
+        SPDLOG_ERROR("frame_samples: enter samples {} ({})", r, strerror(-r));
+        return r;
+    }
 
     std::lock_guard client_lock(self->m);
+    self->focused_seats = std::move(focused_seats);
     for (;;) {
+        uint8_t type_raw = 0;
         uint64_t seq = 0, t_ns = 0;
-        r = sd_bus_message_read(m, "(tt)", &seq, &t_ns);
+        r = sd_bus_message_read(m, "(ytt)", &type_raw, &seq, &t_ns);
         if (r < 0) return r;
         if (r == 0) break;
-        std::lock_guard lock(self->samples_m);
-        self->samples.push_back({seq, t_ns});
-
-        // 500ms windows
-        while (self->samples.size() > 2 && (t_ns - self->samples.front().t_ns) > KEEP_NS)
-            self->samples.pop_front();
-
-        if (self->have_prev) {
-            uint64_t dt_ns = t_ns - self->t_last;
-            uint64_t dseq  = seq  - self->seq_last;
-
-            if (dseq > 1)
-                self->dropped += (dseq - 1);
-
-            if (dseq > 0 && dt_ns > 0) {
-                double ft_ms = (double)dt_ns / (double)dseq / 1e6;
-                self->frametimes.push_back(ft_ms);
-                if (self->frametimes.size() > FT_MAX)
-                    self->frametimes.pop_front();
-            }
-        } else {
-            self->have_prev = true;
+        if (type_raw >= static_cast<uint8_t>(SampleType::Count)) {
+            SPDLOG_ERROR("Invalid sample type {}", type_raw);
+            return sd_bus_error_setf(ret_error, SD_BUS_ERROR_INVALID_ARGS,
+                                     "Invalid sample type %u", type_raw);
         }
 
-        self->t_last = t_ns;
-        self->seq_last = seq;
-        self->n_frames++;
+        auto type = static_cast<SampleType>(type_raw);
+        auto& stats = self->stats_for(type);
+        stats.add_sample(type, seq, t_ns);
     }
 
     r = sd_bus_message_exit_container(m);
@@ -573,12 +589,6 @@ void Client::run() {
 
 Client::~Client() {
     renderer.reset();
-
-    {
-        std::lock_guard lock(samples_m);
-        samples.clear();
-        frametimes.clear();
-    }
 
     sd_bus_slot_unref(handshake_slot);
     sd_bus_slot_unref(frame_samples_slot);
@@ -692,6 +702,9 @@ void Client::frame_ready(uint32_t idx, unique_fd fd) {
             return r;
         }
 
+        self->stats_for(SampleType::Hud).add_sample(SampleType::Hud,
+                                                    self->hud_seq.fetch_add(1, std::memory_order_relaxed),
+                                                    os_time_get_nano());
         return 0;
     });
 }

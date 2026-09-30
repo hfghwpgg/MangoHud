@@ -3,7 +3,10 @@
 #include <variant>
 #include <string_view>
 #include <cctype>
+#include <algorithm>
 #include <sys/stat.h>
+#include <spdlog/fmt/bundled/format.h>
+#include "../common/json.h"
 #include "../common/table_structs.h"
 #include "../common/helpers.hpp"
 #include "string_utils.h"
@@ -48,11 +51,49 @@ static bool parse_gpu_index(const char* key, size_t& index) {
     return true;
 }
 
+static std::string metrics_to_json(const MetricTable::mapped_type& metrics) {
+    std::string out;
+
+    out.push_back('{');
+    bool first = true;
+    for (const auto& [key, metric] : metrics) {
+        if (!first)
+            out.push_back(',');
+        first = false;
+
+        append_json_string(out, key);
+        out += R"(:{"value":)";
+
+        if (metric.val) {
+            std::visit([&out](const auto& value) {
+                append_json_value(out, value);
+            }, *metric.val);
+        } else {
+            out += "null";
+        }
+
+        if (!metric.unit.empty()) {
+            out += R"(,"unit":)";
+            append_json_string(out, metric.unit);
+        }
+
+        out.push_back('}');
+    }
+
+    out.push_back('}');
+    return out;
+}
+
 Metrics::Metrics(IPCServer& ipc, std::shared_ptr<Config> cfg_) : cfg(cfg_), ipc(ipc) {
     client_thread     = std::thread(&Metrics::update_client, this);
     pthread_setname_np(client_thread.native_handle(), "update_client");
     thread            = std::thread(&Metrics::update, this);
     pthread_setname_np(thread.native_handle(), "update_metrics");
+}
+
+void Metrics::add_client_pid(pid_t pid) {
+    for (const auto& gpu : gpus.available())
+        gpu->add_pid(pid);
 }
 
 void Metrics::update() {
@@ -104,28 +145,43 @@ void Metrics::update() {
 void Metrics::update_client() {
     while (!stop.load()) {
         MetricTable new_metrics;
+        std::vector<std::shared_ptr<Client>> clients;
         {
             std::lock_guard clients_lock(ipc.clients_mtx);
-            for (auto client : ipc.clients) {
-                std::vector<float> frametimes;
-                float avg_fps;
-                {
-                    std::lock_guard lock(client->m);
-                    frametimes.assign(client->frametimes.begin(), client->frametimes.end());
-                    avg_fps = client->avg_fps_from_samples();
-                    auto& metrics = new_metrics[std::to_string(client->pid)];
-                    metrics["ENGINE_NAME"] = {engine_name(client->pEngineName)};
-                    metrics["GPU_NAME"] = {client->gpuName};
-                    metrics["VULKAN_DRIVER"] = {client->vulkanDriver};
-                    if (client->resolutionWidth && client->resolutionHeight)
-                        metrics["RESOLUTION"] = {std::to_string(client->resolutionWidth) + "x" + std::to_string(client->resolutionHeight)};
-                }
-                // TODO fps and frametime updates should match other metrics at 500ms
-                // frametimes should still be this fast
-                new_metrics[std::to_string(client->pid)]["FPS"] = {int(round(avg_fps)), "FPS"};
-                new_metrics[std::to_string(client->pid)]["FRAMETIME"] = {1000.f / avg_fps, "ms"};
-                new_metrics[std::to_string(client->pid)]["FRAMETIMES"] = {frametimes};
-            }
+            clients = ipc.clients;
+        }
+
+        for (const auto& client : clients) {
+            auto& metrics = new_metrics[std::to_string(client->pid)];
+            std::lock_guard lock(client->m);
+
+            auto& frame_stats = client->stats_for(SampleType::Frame);
+            auto& refresh_stats = client->stats_for(SampleType::Refresh);
+            auto& app_stats = client->stats_for(SampleType::App);
+            auto& hud_stats = client->stats_for(SampleType::Hud);
+
+            metrics["ENGINE_NAME"] = {engine_name(client->pEngineName)};
+            metrics["GPU_NAME"] = {client->gpuName};
+            metrics["VULKAN_DRIVER"] = {client->vulkanDriver};
+            metrics["FOCUSED"] = {client->focused() ? "true" : "false"};
+            metrics["FOCUSED_SEATS"] = {join_strings(client->focused_seats, ",")};
+            if (client->resolutionWidth && client->resolutionHeight)
+                metrics["RESOLUTION"] = {std::to_string(client->resolutionWidth) + "x" + std::to_string(client->resolutionHeight)};
+
+            // TODO fps and frametime updates should match other metrics at 500ms
+            // frametimes should still be this fast
+            metrics["FPS"] = {int(round(frame_stats.avg_fps())), "FPS"};
+            metrics["REFRESH_FPS"] = {int(round(refresh_stats.avg_fps())), "FPS"};
+            metrics["APP_FPS"] = {int(round(app_stats.avg_fps())), "FPS"};
+            metrics["HUD_FPS"] = {int(round(hud_stats.avg_fps())), "FPS"};
+            metrics["FRAMETIME"] = {frame_stats.avg_frametime(), "ms"};
+            metrics["REFRESH_FRAMETIME"] = {refresh_stats.avg_frametime(), "ms"};
+            metrics["APP_FRAMETIME"] = {app_stats.avg_frametime(), "ms"};
+            metrics["HUD_FRAMETIME"] = {hud_stats.avg_frametime(), "ms"};
+            metrics["FRAMETIMES"] = {frame_stats.frametimes_copy()};
+            metrics["REFRESH_FRAMETIMES"] = {refresh_stats.frametimes_copy()};
+            metrics["APP_FRAMETIMES"] = {app_stats.frametimes_copy()};
+            metrics["HUD_FRAMETIMES"] = {hud_stats.frametimes_copy()};
         }
 
         {
@@ -135,6 +191,71 @@ void Metrics::update_client() {
         populate_tables();
         std::this_thread::sleep_for(std::chrono::milliseconds(7));
     }
+}
+
+std::string Metrics::system_json_snapshot() {
+    std::lock_guard lock(m);
+
+    std::vector<std::string> groups;
+    groups.reserve(metrics.size());
+    for (const auto& group : metrics)
+        groups.push_back(group.first);
+
+    std::sort(groups.begin(), groups.end());
+    std::unordered_map<std::string, bool> gpu_polling;
+    for (const auto& [i, gpu] : enumerate(gpus.available()))
+        gpu_polling["GPU" + std::to_string(i)] = gpu->polling_active();
+
+    std::string out;
+    out += "{\"system\":{";
+
+    bool first = true;
+    for (const auto& group : groups) {
+        if (!first)
+            out.push_back(',');
+        first = false;
+        append_json_string(out, group);
+        out += ":{";
+        if (auto it = gpu_polling.find(group); it != gpu_polling.end()) {
+            out += "\"polling\":";
+            append_json_value(out, it->second);
+            out.push_back(',');
+        }
+        out += "\"metrics\":";
+        out += metrics_to_json(metrics.at(group));
+        out.push_back('}');
+    }
+
+    out += "}}";
+    return out;
+}
+
+std::string Metrics::clients_json_snapshot() {
+    std::lock_guard lock(m);
+
+    std::vector<const MetricTable::value_type*> client_entries;
+    client_entries.reserve(client_metrics.size());
+    for (const auto& client : client_metrics)
+        client_entries.push_back(&client);
+
+    std::sort(client_entries.begin(), client_entries.end(), [](const auto* a, const auto* b) {
+        return std::stoll(a->first) < std::stoll(b->first);
+    });
+
+    std::string out;
+    out += "{\"clients\":[";
+    for (const auto* client : client_entries) {
+        if (client != client_entries.front())
+            out.push_back(',');
+        out += "{\"pid\":";
+        append_json_value(out, std::stoll(client->first));
+        out += ",\"metrics\":";
+        out += metrics_to_json(client->second);
+        out.push_back('}');
+    }
+    out += "]}";
+
+    return out;
 }
 
 Metric Metrics::get(const char* a, const char* b, const pid_t pid = 0)

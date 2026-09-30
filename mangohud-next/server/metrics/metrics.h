@@ -6,7 +6,7 @@
 #include <atomic>
 #include <string_view>
 #include "../config.h"
-#include "gpu/gpu.hpp"
+#include "gpu/gpus.hpp"
 #include "cpu/cpu.hpp"
 #include "exec.h"
 #include "../../ipc/ipc.h"
@@ -28,6 +28,9 @@ public:
     void update_table();
     void populate_tables();
     void update_client();
+    void add_client_pid(pid_t pid);
+    std::string system_json_snapshot();
+    std::string clients_json_snapshot();
     std::vector<std::shared_ptr<GPU>> available_gpus() const { return gpus.available(); }
 
     ~Metrics() {

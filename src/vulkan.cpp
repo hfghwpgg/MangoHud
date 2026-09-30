@@ -367,10 +367,31 @@ static void device_map_queues(struct device_data *data,
    uint32_t queue_index = 0;
    for (uint32_t i = 0; i < pCreateInfo->queueCreateInfoCount; i++) {
       for (uint32_t j = 0; j < pCreateInfo->pQueueCreateInfos[i].queueCount; j++) {
-         VkQueue queue;
-         data->vtable.GetDeviceQueue(data->device,
-                                     pCreateInfo->pQueueCreateInfos[i].queueFamilyIndex,
-                                     j, &queue);
+         VkQueue queue = VK_NULL_HANDLE;
+         if (pCreateInfo->pQueueCreateInfos[i].flags) {
+            if (!data->vtable.GetDeviceQueue2) {
+               SPDLOG_ERROR("vkGetDeviceQueue2 is unavailable for flagged queue {} from family {}",
+                            j, pCreateInfo->pQueueCreateInfos[i].queueFamilyIndex);
+               continue;
+            }
+
+            VkDeviceQueueInfo2 queue_info = {};
+            queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_INFO_2;
+            queue_info.flags = pCreateInfo->pQueueCreateInfos[i].flags;
+            queue_info.queueFamilyIndex = pCreateInfo->pQueueCreateInfos[i].queueFamilyIndex;
+            queue_info.queueIndex = j;
+            data->vtable.GetDeviceQueue2(data->device, &queue_info, &queue);
+         } else {
+            data->vtable.GetDeviceQueue(data->device,
+                                        pCreateInfo->pQueueCreateInfos[i].queueFamilyIndex,
+                                        j, &queue);
+         }
+
+         if (!queue) {
+            SPDLOG_ERROR("Failed to retrieve device queue {} from family {}",
+                         j, pCreateInfo->pQueueCreateInfos[i].queueFamilyIndex);
+            continue;
+         }
 
          VK_CHECK(data->set_device_loader_data(data->device, queue));
 
@@ -1557,6 +1578,19 @@ static struct overlay_draw *before_present(struct swapchain_data *swapchain_data
    return draw;
 }
 
+static std::string present_modes_string(const std::vector<VkPresentModeKHR>& presentModes)
+{
+   std::ostringstream ss;
+
+   for (size_t i = 0; i < presentModes.size(); i++) {
+      if (i > 0)
+         ss << ", ";
+      ss << string_VkPresentModeKHR(presentModes[i]);
+   }
+
+   return ss.str();
+}
+
 static bool is_present_mode_supported(VkPhysicalDevice device, VkSurfaceKHR surface, VkPresentModeKHR targetPresentMode)
 {
    struct instance_data *instance_data = FIND(struct instance_data, device);
@@ -1580,6 +1614,9 @@ static bool is_present_mode_supported(VkPhysicalDevice device, VkSurfaceKHR surf
          for (const auto& mode : presentModes)
             if (mode == targetPresentMode)
                return true;
+
+         SPDLOG_WARN("Present mode is not supported: {}", string_VkPresentModeKHR(targetPresentMode));
+         SPDLOG_WARN("Advertised present modes: {}", present_modes_string(presentModes));
       }
       else {
          SPDLOG_ERROR("Failed to get presentModes: vkGetPhysicalDeviceSurfacePresentModesKHR failed with {}", vk_Result_to_str(result));
@@ -1609,9 +1646,6 @@ static VkResult overlay_CreateSwapchainKHR(
    if (target_present_mode.has_value()) {
       if (is_present_mode_supported(device_data->physical_device, createInfo.surface, target_present_mode.value())) {
          createInfo.presentMode = target_present_mode.value();
-      }
-      else {
-         SPDLOG_WARN("Present mode is not supported: {}", string_VkPresentModeKHR(target_present_mode.value()));
       }
    }
 
@@ -2105,10 +2139,6 @@ static void overlay_DestroyInstance(
    struct instance_data *instance_data = FIND(struct instance_data, instance);
    instance_data_map_physical_devices(instance_data, false);
    instance_data->vtable.DestroyInstance(instance, pAllocator);
-#ifdef __linux__
-   if (!is_blacklisted())
-      stop_notifier(instance_data->notifier);
-#endif
    destroy_instance_data(instance_data);
 }
 

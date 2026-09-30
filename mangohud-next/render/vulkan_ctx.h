@@ -41,7 +41,6 @@ private:
     PFN_vkSetDebugUtilsObjectNameEXT pfn_vkSetDebugUtilsObjectNameEXT = nullptr;
 
     unique_fd phys_fd_;
-    bool use_dmabuf = true;
 
     void init(bool enableValidation);
     int phys_fd();
