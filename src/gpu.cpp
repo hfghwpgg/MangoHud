@@ -115,6 +115,13 @@ GPUS::GPUS(const overlay_params* early_params) {
 
 }
 
+bool GPU::is_steam_frame() {
+    if (driver != "msm_dpu" && driver != "msm_drm")
+        return false;
+
+    return drm_node_is_steam_frame(drm_node);
+}
+
 std::string GPUS::get_driver(const std::string& node) {
     std::string path = "/sys/class/drm/" + node + "/device/driver";
 

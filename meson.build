@@ -310,10 +310,24 @@ endif
 
 if get_option('mangoapp')
   glfw3_dep = dependency('glfw3')
+  xi_dep = dependency('xi')
 endif
 
 libdrm_dep = dependency('libdrm')
-libcap_dep = dependency('libcap')
+tracefs_dep = dependency('libtracefs', required: false)
+gpu_tracefs_deps = []
+gpu_tracefs_args = []
+tracefs_links = false
+if tracefs_dep.found()
+  tracefs_links = cc.links('''
+    #include <tracefs.h>
+    int main(void) { return tracefs_tracing_dir() == 0; }
+  ''', dependencies: tracefs_dep, name: 'usable libtracefs')
+endif
+if tracefs_links
+  gpu_tracefs_deps += tracefs_dep
+  gpu_tracefs_args += '-DHAVE_TRACEFS_GPU_MEM'
+endif
 
 subdir('mangohud-next/legacy_gpu_wrapper')
 subdir('src')

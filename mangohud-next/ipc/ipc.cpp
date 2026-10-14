@@ -20,8 +20,43 @@ IPCServer::IPCServer(MangoHudServer* server_) : server(server_) {
         SPDLOG_ERROR("sd_id128_randomize {} ({})", r, strerror(-r));
         server_id = SD_ID128_NULL;
     }
+}
 
+void IPCServer::start() {
     thread = std::thread(&IPCServer::dbus_thread, this);
+}
+
+int IPCServer::on_is_blacklisted(sd_bus_message* message, void* userdata, sd_bus_error*)
+{
+    auto* self = static_cast<IPCServer*>(userdata);
+    const char* name = nullptr;
+    int result = sd_bus_message_read(message, "s", &name);
+    if (result <= 0)
+        return result < 0 ? result : -EINVAL;
+
+    bool excluded;
+    {
+        std::lock_guard lock(self->server->config->m);
+        excluded = self->server->config->is_blacklisted(name);
+    }
+    return sd_bus_reply_method_return(message, "b", static_cast<int>(excluded));
+}
+
+std::shared_ptr<Client> IPCServer::focused_client(std::string_view display)
+{
+    std::vector<std::shared_ptr<Client>> candidates;
+    {
+        std::lock_guard lock(clients_mtx);
+        candidates = clients;
+    }
+
+    for (const auto& client : candidates) {
+        std::lock_guard lock(client->m);
+        if (client->active.load() &&
+            client->wayland_display == display && client->focused())
+            return client;
+    }
+    return nullptr;
 }
 
 IPCServer::~IPCServer() {
@@ -165,39 +200,34 @@ void IPCServer::dbus_thread() {
     static const sd_bus_vtable vtable[] = {
         SD_BUS_VTABLE_START(0),
         SD_BUS_METHOD("request_fd", "", "h", IPCServer::on_request_fd, SD_BUS_VTABLE_UNPRIVILEGED),
+        SD_BUS_METHOD("is_blacklisted", "s", "b", IPCServer::on_is_blacklisted, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("get_clients", "", "s", IPCServer::on_get_clients, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("get_system", "", "s", IPCServer::on_get_system, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_VTABLE_END
     };
 
     int r = sd_bus_open_user(&bus);
+    if (r >= 0)
+        r = sd_bus_add_object_vtable(bus, &slot, kObjPath, kIface, vtable, this);
+    if (r >= 0)
+        r = sd_bus_request_name(bus, kBusName, 0);
     if (r < 0) {
-        return;
-    }
-
-    r = sd_bus_request_name(bus, kBusName, 0);
-    if (r < 0) {
-        sd_bus_unref(bus);
-        return;
-    }
-
-    r = sd_bus_add_object_vtable(bus, &slot, kObjPath, kIface, vtable, this);
-    if (r < 0) {
-        sd_bus_unref(bus);
+        SPDLOG_ERROR("server bus setup failed: {} ({})", r, strerror(-r));
+        stop.store(true);
         return;
     }
 
     while (!stop.load()) {
         r = sd_bus_process(bus, nullptr);
-        if (r < 0) {
+        if (r < 0)
             break;
-        }
-        if (r > 0) {
+
+        if (r > 0)
             continue;
-        }
-        r = sd_bus_wait(bus, UINT64_MAX);
-        if (r < 0) {
+        r = sd_bus_wait(bus, 1000000);
+        if (r < 0)
             break;
-        }
     }
+    bus = sd_bus_flush_close_unref(bus);
+    stop.store(true);
 }

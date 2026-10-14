@@ -762,7 +762,7 @@ void HudElements::proc_vram() {
 void HudElements::ram(){
 #ifdef __linux__
     if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_ram] ||
-        HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_ram_temp]) {
+        (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_ram_temp] && mem_temp > -1)) {
         ImguiNextColumnFirstItem();
         HUDElements.TextColored(HUDElements.colors.ram, "RAM");
     }
@@ -787,7 +787,7 @@ void HudElements::ram(){
         ImGui::PopFont();
     }
 
-    if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_ram_temp]) {
+    if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_ram_temp] && mem_temp > -1) {
         ImguiNextColumnOrNewRow();
         if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_temp_fahrenheit])
             right_aligned_text(HUDElements.colors.text, HUDElements.ralign_width, "%i", HUDElements.convert_to_fahrenheit(mem_temp));
@@ -1314,7 +1314,7 @@ void HudElements::gamescope_fsr(){
         ImguiNextColumnFirstItem();
         string FSR_TEXT;
         ImVec4 FSR_COLOR;
-        if (HUDElements.g_fsrUpscale){
+        if (HUDElements.g_upscaling){
             FSR_TEXT = "ON";
             FSR_COLOR = HUDElements.colors.fps_value_high;
         } else {
@@ -1322,10 +1322,10 @@ void HudElements::gamescope_fsr(){
             FSR_COLOR = HUDElements.colors.fps_value_low;
         }
 
-        HUDElements.TextColored(HUDElements.colors.engine, "%s", "FSR");
+        HUDElements.TextColored(HUDElements.colors.engine, "%s", HUDElements.g_wantedUpscaler.c_str());
         ImguiNextColumnOrNewRow();
         right_aligned_text(FSR_COLOR, HUDElements.ralign_width, "%s", FSR_TEXT.c_str());
-        if (HUDElements.g_fsrUpscale){
+        if (HUDElements.g_upscalerSharpens){
             if (!HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_hide_fsr_sharpness]) {
                 ImguiNextColumnOrNewRow();
                 right_aligned_text(HUDElements.colors.text, HUDElements.ralign_width, "%i", HUDElements.g_fsrSharpness);
@@ -1469,7 +1469,11 @@ void HudElements::frame_count(){
 }
 
 void HudElements::fan(){
-    if (HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_fan] && fan_speed != -1) {
+    if (!HUDElements.params->enabled[OVERLAY_PARAM_ENABLED_fan])
+        return;
+
+    int fan_speed = cpuStats.GetPlatformFanSpeed();
+    if (fan_speed != -1) {
         ImguiNextColumnFirstItem();
         HUDElements.TextColored(HUDElements.colors.engine, "%s", "FAN");
         ImguiNextColumnOrNewRow();

@@ -10,21 +10,27 @@
 #include "vk.h"
 #include "egl.h"
 std::mutex init_m;
-static constexpr float unit_gap = -1.5f;
 static constexpr float hud_cell_padding_x = 0.0f;
 static constexpr float hud_cell_padding_y = 2.0f;
 static constexpr float outline_padding_x = 1.5f;
+static constexpr float unit_gap = 1.0f;
 static constexpr float graph_plot_height = 50.0f;
 
 ImGuiCtx::ImGuiCtx() {
     std::lock_guard lock(init_m);
 };
 
-void ImGuiCtx::init_vk(std::shared_ptr<VkCtx> vk_) {
-    vk = std::make_shared<ImGuiVK>(std::move(vk_), this);
+void ImGuiCtx::init_vk(VkCtx* vk_) {
+    if (vk)
+        return;
+
+    vk = std::make_shared<ImGuiVK>(vk_, this);
 }
 
 void ImGuiCtx::init_egl() {
+    if (egl)
+        return;
+
     egl = std::make_shared<ImGuiEGL>(this);
 }
 
@@ -446,9 +452,18 @@ void ImGuiCtx::draw_value_with_unit(int col_index,
     const float value_top_y = text_y + value_y.min;
     const float unit_pos_y = value_top_y - unit_y.min;
 
-    if (tc.style.align != CellAlign::Default && tc.unit.empty()) {
+    if (tc.style.align != CellAlign::Default) {
         ImFont* font = fonts->get(text_font_sz);
-        const TextXBounds x_bounds = text_x_bounds(tc.text.c_str(), font, text_font_sz);
+        TextXBounds x_bounds = text_x_bounds(tc.text.c_str(), font, text_font_sz);
+        ImFont* unit_font = nullptr;
+        const float unit_x = value_sz.x + unit_gap;
+        if (!tc.unit.empty()) {
+            const float unit_size = tc.unit == "%" ? text_font_sz : unit_font_size(table, tc);
+            unit_font = fonts->get(unit_size);
+            const TextXBounds unit_bounds = text_x_bounds(tc.unit.c_str(), unit_font, unit_size);
+            x_bounds.min = std::min(x_bounds.min, unit_x + unit_bounds.min);
+            x_bounds.max = std::max(x_bounds.max, unit_x + unit_bounds.max);
+        }
         const float visual_w = x_bounds.max - x_bounds.min;
         float text_x = base.x - x_bounds.min;
 
@@ -461,6 +476,12 @@ void ImGuiCtx::draw_value_with_unit(int col_index,
         ImGui::PushFont(font);
         RenderOutlinedText(tc.vec, tc.text.c_str());
         ImGui::PopFont();
+        if (unit_font) {
+            ImGui::SetCursorPos(ImVec2(text_x + unit_x, unit_pos_y));
+            ImGui::PushFont(unit_font);
+            RenderOutlinedText(unit_col, tc.unit.c_str());
+            ImGui::PopFont();
+        }
         ImGui::SetCursorPos(ImVec2(base.x, base.y + row_h));
         return;
     }
@@ -673,6 +694,7 @@ static HudLayout build_table_layout(hudTable* table, Font* fonts) {
     L.col_boxes.resize(L.cols);
 
     float max_col0_w = 0.0f;
+    std::vector<float> col0_span_widths(L.cols, 0.0f);
     std::vector<bool> separator_cols(L.cols, false);
     std::vector<float> separator_col_widths(L.cols, 0.0f);
 
@@ -698,7 +720,10 @@ static HudLayout build_table_layout(hudTable* table, Font* fonts) {
                     }
                 }
 
-                if (w > max_col0_w)
+                if (tc0->style.colspan > 1 && L.cols > 0) {
+                    const int end_col = std::min(L.cols, tc0->style.colspan) - 1;
+                    col0_span_widths[end_col] = std::max(col0_span_widths[end_col], w);
+                } else if (w > max_col0_w)
                     max_col0_w = w;
             } else if (const auto* pc0 = std::get_if<ProgressCell>(&v0)) {
                 const std::string& text = pc0->layout_text.empty() ? pc0->text : pc0->layout_text;
@@ -790,6 +815,15 @@ static HudLayout build_table_layout(hudTable* table, Font* fonts) {
             const float unit_w = L.max_value_w[c] + (has_units ? (unit_gap + L.max_unit_w[c]) : 0.0f);
             L.col_boxes[c].size.x = std::max(L.max_cell_w[c], unit_w);
         }
+    }
+
+    // Fit shorter spans first so wider spans include any earlier column growth.
+    float spanned_w = 0.0f;
+    for (int c = 0; c < L.cols; c++) {
+        spanned_w += L.col_boxes[c].size.x + (c > 0 ? table->col_gap : 0.0f);
+        const float extra = std::max(0.0f, col0_span_widths[c] - spanned_w);
+        L.col_boxes[c].size.x += extra;
+        spanned_w += extra;
     }
 
     float x = 0.0f;
@@ -919,7 +953,11 @@ void ImGuiCtx::end_window() {
     ImGui::PopStyleVar();
 }
 
-bool ImGuiCtx::draw(clientRes* r, slot_t* buf, Backend backend) {
+bool ImGuiCtx::draw(uint32_t w, uint32_t h, Resolution& size, BufferSet* buf, Backend backend,
+                    std::shared_ptr<HudConfig> hud, std::mutex& hud_m) {
+    size = {w, h};
+
+    std::unique_lock<std::mutex> global_lock(global_m);
     std::unique_lock<std::mutex> imgui_lock(m);
     std::unique_lock<std::mutex> vk_lock;
     ImGuiContext* imgui = nullptr;
@@ -940,8 +978,8 @@ bool ImGuiCtx::draw(clientRes* r, slot_t* buf, Backend backend) {
 
     std::vector<HudWindow> windows;
     {
-        std::lock_guard lock(r->hud_m);
-        windows = r->hud->windows;
+        std::lock_guard lock(hud_m);
+        windows = hud->windows;
     }
     ImGui::SetCurrentContext(imgui);
     ImPlot::SetCurrentContext(implot);
@@ -949,7 +987,7 @@ bool ImGuiCtx::draw(clientRes* r, slot_t* buf, Backend backend) {
         prepare_table_fonts(window.table, fonts);
 
     ImGuiIO& io = ImGui::GetIO();
-    io.DisplaySize = {float(r->w), float(r->h)};
+    io.DisplaySize = {float(w), float(h)};
 
 
     ImGui::NewFrame();
@@ -973,20 +1011,15 @@ bool ImGuiCtx::draw(clientRes* r, slot_t* buf, Backend backend) {
         max_y = std::max(max_y, window.position.y + (float)window_h);
     }
 
-    uint32_t w = (uint32_t)std::ceil(max_x);
-    uint32_t h = (uint32_t)std::ceil(max_y);
+    size = {(uint32_t)std::ceil(max_x), (uint32_t)std::ceil(max_y)};
 
     ImGui::Render();
 
-    if (w != r->w || h != r->h) {
-        SPDLOG_DEBUG("resizing image from: {} {} to {} {}", r->w, r->h, w, h);
-        r->w = w;
-        r->h = h;
+    if (size != Resolution{w, h})
         return false;
-    }
 
     if (backend == Backend::VULKAN)
-        vk->record_cmd(*buf, w, h);
+        return vk->record_cmd(*buf, w, h);
 
     if (backend == Backend::EGL)
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());

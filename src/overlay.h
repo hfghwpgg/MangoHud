@@ -146,7 +146,6 @@ extern std::string wineVersion;
 extern std::deque<logData> graph_data;
 extern double min_frametime, max_frametime;
 extern bool steam_focused;
-extern int fan_speed;
 extern int current_preset;
 extern std::vector<float> frametime_data;
 
@@ -159,7 +158,7 @@ void update_hud_info(struct swapchain_stats& sw_stats, const struct overlay_para
 void update_hud_info_with_frametime(struct swapchain_stats& sw_stats, const struct overlay_params& params, uint32_t vendorID, uint64_t frametime_ns);
 void update_hw_info(const struct overlay_params& params, uint32_t vendorID);
 void init_cpu_stats(overlay_params& params);
-void check_keybinds(overlay_params& params);
+void check_keybinds(overlay_params& params, const char* keymap = nullptr);
 void init_system_info(void);
 void check_for_vkbasalt_and_gamemode();
 void create_fonts(ImFontAtlas* font_atlas, const overlay_params& params, ImFont*& small_font, ImFont*& text_font, ImFont*& secondary_font);
@@ -175,7 +174,6 @@ extern int global_control_client;
 #ifdef HAVE_DBUS
 void render_mpris_metadata(const overlay_params& params, mutexed_metadata& meta, uint64_t frame_timing);
 #endif
-void update_fan();
 void next_hud_position();
 void horizontal_separator(struct overlay_params& params);
 void RenderOutlinedText(const char* text, ImU32 textColor);

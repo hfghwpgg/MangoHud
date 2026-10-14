@@ -3,6 +3,11 @@
 #include "../client/layer.h"
 #include "ipc_abi_hash.h"
 
+#include <cstdlib>
+#include <linux/dma-buf.h>
+#include <sys/ioctl.h>
+#include "file_utils.h"
+
 IPCClient::IPCClient(Layer* layer_, Backend api_) : layer(layer_), api(api_){
     auto console = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
     auto spdlog_sink = std::make_shared<spdlogSink>(this);
@@ -10,6 +15,14 @@ IPCClient::IPCClient(Layer* layer_, Backend api_) : layer(layer_), api(api_){
     spdlog::set_default_logger(logger);
     spdlog::set_level(spdlog::level::level_enum::debug);
     SPDLOG_DEBUG("init dbus client");
+    // Gamescope always sets GAMESCOPE_WAYLAND_DISPLAY for its nested compositor;
+    // WAYLAND_DISPLAY is set only with --expose-wayland.
+    const char* display = std::getenv("GAMESCOPE_WAYLAND_DISPLAY");
+    gamescopeSession = display && *display;
+    if (!display || !*display)
+        display = std::getenv("WAYLAND_DISPLAY");
+    if (display && *display)
+        waylandDisplay = display;
     wake_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
     work_eventfd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
 }
@@ -302,9 +315,16 @@ bool IPCClient::connect_bus() {
 }
 
 void IPCClient::run_bus() {
-    int r = sd_event_loop(event);
-    if (r < 0 && !quit.load())
-        SPDLOG_ERROR("sd_event_loop {} ({})", r, strerror(-r));
+    while (!quit.load() && sd_event_get_state(event) != SD_EVENT_FINISHED) {
+        // Focus and samples must not depend on receiving rendered HUD frames.
+        push_queue();
+        int r = sd_event_run(event, 10000);
+        if (r < 0) {
+            if (!quit.load())
+                SPDLOG_ERROR("sd_event_run {} ({})", r, strerror(-r));
+            break;
+        }
+    }
 }
 
 void IPCClient::bus_thread() {
@@ -355,14 +375,17 @@ bool IPCClient::on_connect() {
 
         r = sd_bus_message_append(
             msg,
-            "tsxiiss",
+            "tsxiisssbb",
             abi_hash,
             pEngineName.c_str(),
             int64_t(renderMinor),
             (buffer_size),
             raw_api,
             vulkanDriver.c_str(),
-            gpuName.c_str()
+            gpuName.c_str(),
+            waylandDisplay.c_str(),
+            static_cast<int>(gamescopeSession),
+            static_cast<int>(waylandSurface)
         );
 
         r = sd_bus_send(bus, msg, nullptr);
@@ -470,6 +493,13 @@ int IPCClient::push_queue() {
             return r;
         }
 
+        r = sd_bus_message_append(m, "b", static_cast<int>(x11_focused.load()));
+        if (r < 0) {
+            SPDLOG_ERROR("push_queue: append X11 focus {} ({})", r, strerror(-r));
+            sd_bus_message_unref(m);
+            return r;
+        }
+
         r = sd_bus_message_open_container(m, 'a', "s");
         if (r < 0) {
             SPDLOG_ERROR("push_queue: open focused seats {} ({})", r, strerror(-r));
@@ -547,8 +577,7 @@ int IPCClient::request_fd_from_server() {
         return -1;
     }
 
-    static constexpr uint64_t kTimeoutUsec = 2ULL * 1000ULL * 1000ULL; // 2 s
-    r = sd_bus_call(bus_, m, kTimeoutUsec, nullptr, &reply);
+    r = sd_bus_call(bus_, m, 0, nullptr, &reply);
 
     if (r < 0) {
         SPDLOG_ERROR("sd_bus_call {} ({})", r, strerror(-r));
@@ -664,10 +693,30 @@ int IPCClient::on_work_event(sd_event_source *s, int fd, uint32_t revents, void 
     return 0;
 }
 
-void IPCClient::frame_ready(uint32_t idx, int f) {
-    auto fd = unique_fd::adopt(f);
+unique_fd IPCClient::export_dmabuf_sync_file(int dmabuf_fd, bool write)
+{
+    dma_buf_export_sync_file data{};
+    data.flags = write ? DMA_BUF_SYNC_WRITE : DMA_BUF_SYNC_READ;
+    data.fd = -1;
+
+    if (ioctl(dmabuf_fd, DMA_BUF_IOCTL_EXPORT_SYNC_FILE, &data) != 0) {
+        SPDLOG_ERROR("DMA_BUF_IOCTL_EXPORT_SYNC_FILE failed: errno={}", errno);
+        return {};
+    }
+    if (data.fd < 0) {
+        SPDLOG_ERROR("DMA_BUF_IOCTL_EXPORT_SYNC_FILE returned invalid fd");
+        return {};
+    }
+    return unique_fd::adopt(data.fd);
+}
+
+void IPCClient::frame_ready(int idx, unique_fd fd) {
+    if (idx < 0 || !fd)
+        return;
+
     post([this, idx, fd = std::move(fd)]() {
-        int r = sd_bus_emit_signal(bus, kObjPath, kIface, "frame_ready", "uh", idx, fd.get());
+        int r = sd_bus_emit_signal(bus, kObjPath, kIface, "frame_ready", "uh",
+                                   static_cast<uint32_t>(idx), fd.get());
 
         if (r < 0) {
             SPDLOG_ERROR("sd_bus_emit_signal {} ({}) ObjPath: {} Iface: {}",
@@ -681,8 +730,9 @@ int IPCClient::on_frame(sd_bus_message* m, void* userdata, sd_bus_error*) {
     auto* self = static_cast<IPCClient*>(userdata);
 
     ready_frame frame;
+    uint32_t idx = 0;
     int fd;
-    int r = sd_bus_message_read(m, "uh", &frame.idx, &fd);
+    int r = sd_bus_message_read(m, "uh", &idx, &fd);
     if (r < 0) {
         SPDLOG_ERROR("sd_bus_message_read {} ({})", r, strerror(-r));
         if (fd >= 0)
@@ -690,6 +740,7 @@ int IPCClient::on_frame(sd_bus_message* m, void* userdata, sd_bus_error*) {
         return r;
     }
 
+    frame.idx = static_cast<int>(idx);
     frame.fd = unique_fd::dup(fd);
     {
         std::lock_guard lock(self->sync_mtx);
@@ -697,4 +748,30 @@ int IPCClient::on_frame(sd_bus_message* m, void* userdata, sd_bus_error*) {
     }
     self->push_queue();
     return 0;
+}
+
+bool IPCClient::is_blacklisted()
+{
+    static const bool blacklisted = [] {
+        auto name = get_wine_exe_name(true);
+        if (name.empty())
+            name = get_basename(get_exe_path());
+        bool ignored = false;
+        sd_bus* bus = nullptr;
+        sd_bus_message* reply = nullptr;
+        if (sd_bus_open_user(&bus) >= 0) {
+            int excluded = 0;
+            int result = sd_bus_call_method(bus, kBusName, kObjPath, kIface,
+                                            "is_blacklisted", nullptr, &reply,
+                                            "s", name.c_str());
+            if (result >= 0 && sd_bus_message_read(reply, "b", &excluded) > 0)
+                ignored = excluded != 0;
+        }
+        sd_bus_message_unref(reply);
+        sd_bus_flush_close_unref(bus);
+        if (ignored)
+            SPDLOG_INFO("process '{}' is blacklisted in MangoHud Next", name);
+        return ignored;
+    }();
+    return blacklisted;
 }

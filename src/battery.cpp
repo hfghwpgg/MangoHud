@@ -1,23 +1,46 @@
+#include <algorithm>
+#include <vector>
 #include <spdlog/spdlog.h>
 #include <filesystem.h>
 #include "battery.h"
+#include "file_utils.h"
+#include "string_utils.h"
 
 namespace fs = ghc::filesystem;
 using namespace std;
 
+// A peripheral's battery (a gamepad, a mouse) has the scope "Device"
+static bool is_system_battery(const fs::path& path) {
+    return read_line((path / "type").string()) == "Battery" &&
+           read_line((path / "scope").string()) != "Device";
+}
+
 void BatteryStats::numBattery() {
     int batteryCount = 0;
-    if (!fs::exists("/sys/class/power_supply/")) {
-         batteryCount = 0;
-    }
-    fs::path path("/sys/class/power_supply/");
-    for (auto& p : fs::directory_iterator(path)) {
-        string fileName = p.path().filename();
-        if (fileName.find("BAT") != std::string::npos) {
-            battPath[batteryCount] = p.path();
-            batteryCount += 1;
+    std::vector<fs::path> found;
+
+    for (const auto& path : { fs::path("/sys/class/power_supply/"), fs::path("/run/deckardcharger/") }) {
+        if (!fs::exists(path))
+            continue;
+
+        const bool is_deckard = path == fs::path("/run/deckardcharger/");
+
+        for (auto& p : fs::directory_iterator(path)) {
+            string fileName = p.path().filename();
+            if (batteryCount < battery_count_max &&
+                (is_deckard ? fileName.find("BAT") != std::string::npos : is_system_battery(p.path()))) {
+                // Skip duplicate battery symlinks
+                std::error_code ec;
+                fs::path real = fs::canonical(p.path(), ec);
+                if (!ec && std::find(found.begin(), found.end(), real) != found.end())
+                    continue;
+                found.push_back(real);
+                battPath[batteryCount] = p.path();
+                batteryCount += 1;
+            }
         }
     }
+
     batt_count = batteryCount;
     batt_check = true;
 }
@@ -41,6 +64,14 @@ float BatteryStats::getPercent()
 {
     float charge_n = 0;
     float charge_f = 0;
+
+    std::string deckard_percent = read_line("/run/deckardcharger/battery_percent");
+    if (!deckard_percent.empty()) {
+        float percent = 0.0f;
+        if (try_stof(percent, deckard_percent))
+            return percent;
+    }
+
     for(int i = 0; i < batt_count; i++) {
         string syspath = battPath[i];
         string charge_now = syspath + "/charge_now";
@@ -87,8 +118,24 @@ float BatteryStats::getPercent()
     return (charge_n / charge_f) * 100;
 }
 
+// vph is the measured system rail, bl_power the backlight
+static bool get_power_deckard(float& power) {
+    std::string vph = read_line("/run/power-monitor/power/vph");
+    std::string bl_power = read_line("/run/power-monitor/power/bl_power");
+    if (vph.empty() || bl_power.empty())
+        return false;
+
+    float vph_w = 0.0f, bl_power_w = 0.0f;
+    if (!try_stof(vph_w, vph) || !try_stof(bl_power_w, bl_power))
+        return false;
+
+    power = vph_w + bl_power_w;
+    return true;
+}
+
 float BatteryStats::getPower() {
     float power_w = 0.0f;
+    const bool deckard = fs::exists("/run/power-monitor/power/vph");
 
     for (int i = 0; i < batt_count; i++) {
         string syspath = battPath[i];
@@ -110,6 +157,9 @@ float BatteryStats::getPower() {
             // TODO if we have multiple batteries, we will return 0 if just one of them is charging
             return 0.0f;
         }
+
+        if (deckard)
+            continue;
 
         // Prefer power_now (µW) when available.
         if (fs::exists(power_now)) {
@@ -143,6 +193,10 @@ float BatteryStats::getPower() {
             power_w += (std::fabs(i_ua) * std::fabs(v_uv)) * 1e-12f;
         }
     }
+
+    // Keep previous power on empty or invalid reads
+    if (deckard)
+        return get_power_deckard(power_w) ? power_w : current_watt;
 
     return power_w;
 }

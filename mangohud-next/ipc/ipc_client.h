@@ -1,5 +1,4 @@
 #pragma once
-#include <systemd/sd-bus.h>
 #include <deque>
 #include "imgui.h"
 #include <atomic>
@@ -15,9 +14,29 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/pattern_formatter.h>
 #include "client.h"
+#include "protocol.h"
 
 class spdlogSink;
 class Layer;
+
+struct Fdinfo {
+    uint64_t modifier = 0;
+    uint32_t dmabuf_offset = 0;
+    uint32_t stride = 0;
+    uint32_t fourcc = 0;
+    uint64_t plane_size = 0;
+
+    uint32_t w = 0;
+    uint32_t h = 0;
+
+    uint64_t opaque_size = 0;
+    uint64_t opaque_offset = 0;
+
+    std::vector<unique_fd> dmabuf_buffer;
+    std::vector<unique_fd> opaque_buffer;
+    std::vector<unique_fd> semaphores;
+};
+
 class IPCClient {
 public:
     std::atomic<uint64_t> import_generation{0};
@@ -25,10 +44,13 @@ public:
     std::mutex m;
     Fdinfo fdinfo;
     float fps_limit = 0;
-    int64_t renderMinor = 0;
+    int64_t renderMinor = -1;
     std::string pEngineName;
     std::string vulkanDriver;
     std::string gpuName;
+    std::string waylandDisplay;
+    bool gamescopeSession = false;
+    bool waylandSurface = false;
     int buffer_size = 0;
 
     IPCClient(Layer* layer_ = nullptr, Backend api_ = Backend::NONE);
@@ -54,6 +76,8 @@ public:
         }
     }
 
+    std::atomic<bool> x11_focused{false};
+
     bool set_focused_seats(std::vector<std::string> seats) {
         auto current = focused_seats.load();
         if (current && *current == seats)
@@ -64,12 +88,14 @@ public:
     }
 
     int push_queue();
+    static bool is_blacklisted();
     bool on_connect();
     void send_resolution(uint32_t width, uint32_t height);
     void send_spdlog(const int level, const char* file, const int line, const std::string& text);
     void send_import_failed();
     void send_semaphores(std::vector<int> sema);
-    void frame_ready(uint32_t idx, int fd);
+    static unique_fd export_dmabuf_sync_file(int dmabuf_fd, bool write = false);
+    void frame_ready(int idx, unique_fd fd);
     void clear_frames() {
         std::lock_guard lock(sync_mtx);
         frame_queue.clear();
