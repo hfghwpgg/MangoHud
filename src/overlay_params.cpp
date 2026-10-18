@@ -1340,6 +1340,18 @@ void add_to_options(struct overlay_params *params, std::string option, std::stri
    params->options[option] = value;
 }
 
+// override an earlier option instead of adding a second HUD element for it
+static void set_option(struct overlay_params *params, const std::string& option, const std::string& value){
+   for (auto& o : HUDElements.options) {
+      if (o.first == option) {
+         o.second = value;
+         params->options[option] = value;
+         return;
+      }
+   }
+   add_to_options(params, option, value);
+}
+
 void presets(int preset, struct overlay_params *params, bool inherit) {
    if (!inherit && parse_preset_config(preset, params))
          return;
@@ -1423,6 +1435,7 @@ void presets(int preset, struct overlay_params *params, bool inherit) {
          add_to_options(params, "present_mode", "0");
          add_to_options(params, "proc_vram", "0");
          add_to_options(params, "procmem", "0");
+         add_to_options(params, "cgroup_mem", "0");
          add_to_options(params, "display_server", "0");
          add_to_options(params, "gpu_efficiency", "0");
          add_to_options(params, "cpu_efficiency", "0");
@@ -1466,6 +1479,7 @@ void presets(int preset, struct overlay_params *params, bool inherit) {
       add_to_options(params, "network", "");
       if (preset == 4) {
          add_to_options(params, "ram_temp", "0");
+         set_option(params, "cgroup_mem", "1");
 #ifdef HAVE_FEX
          add_to_options(params, "fex_stats", "status+apptype+hotthreads+jitload+sigbus+smc+softfloat");
 #endif
