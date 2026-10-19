@@ -44,7 +44,7 @@ The config file is watched while MangoHud Next is running. Changes are reloaded 
 | --- | --- | --- | --- |
 | `font_size` | integer | `24` | HUD font size. Currently parsed by the config system for renderer use. |
 | `fps_limit` | number | `0` | FPS limit sent to connected clients. `0` disables the limiter. |
-| `toggle_hud` | string | `Shift_R+F12` | Key combination that shows/hides the HUD, as XKB keysym names joined with `+`. Works on Wayland and X11 while the game window has keyboard focus. Empty disables it. |
+| `toggle_hud` | string | `Shift_R+F12` | Key combination that shows/hides the HUD, as XKB keysym names joined with `+`. Works while the game window has keyboard focus. Empty disables it. |
 
 ## Hud Windows
 
