@@ -1,5 +1,5 @@
-#include <systemd/sd-bus.h>
 #include <cstdint>
+#include <algorithm>
 #include <vector>
 #include <drm/drm_fourcc.h>
 #include <thread>
@@ -10,8 +10,10 @@
 #include <sys/socket.h>
 #include "ipc.h"
 #include "ipc_client.h"
+#include "ipc_abi_hash.h"
 #include "../server/config.h"
 #include "../server/server.h"
+#include "../server/common/helpers.hpp"
 
 IPCServer::IPCServer(MangoHudServer* server_) : server(server_) {
     SPDLOG_DEBUG("init IPCServer");
@@ -22,13 +24,38 @@ IPCServer::IPCServer(MangoHudServer* server_) : server(server_) {
     }
 }
 
+void IPCServer::record_server_request() {
+    std::lock_guard lock(clients_mtx);
+    server_request_time = os_time_get_nano();
+}
+
 void IPCServer::start() {
+    idle_since = os_time_get_nano();
     thread = std::thread(&IPCServer::dbus_thread, this);
 }
 
-int IPCServer::on_is_blacklisted(sd_bus_message* message, void* userdata, sd_bus_error*)
+bool IPCServer::should_stop() {
+    if (stop.load())
+        return true;
+
+    prune_clients();
+    std::lock_guard lock(clients_mtx);
+    const auto now = os_time_get_nano();
+    if (!clients.empty()) {
+        idle_since = now;
+        return false;
+    }
+    if (now - std::max(idle_since, server_request_time) < 5'000'000'000LL)
+        return false;
+
+    SPDLOG_DEBUG("No clients remain; stopping server");
+    return true;
+}
+
+int IPCServer::on_preflight(sd_bus_message* message, void* userdata, sd_bus_error*)
 {
     auto* self = static_cast<IPCServer*>(userdata);
+    self->record_server_request();
     const char* name = nullptr;
     int result = sd_bus_message_read(message, "s", &name);
     if (result <= 0)
@@ -39,16 +66,12 @@ int IPCServer::on_is_blacklisted(sd_bus_message* message, void* userdata, sd_bus
         std::lock_guard lock(self->server->config->m);
         excluded = self->server->config->is_blacklisted(name);
     }
-    return sd_bus_reply_method_return(message, "b", static_cast<int>(excluded));
+    return sd_bus_reply_method_return(message, "bt", static_cast<int>(excluded), uint64_t(MANGOHUD_IPC_ABI_HASH));
 }
 
 std::shared_ptr<Client> IPCServer::focused_client(std::string_view display)
 {
-    std::vector<std::shared_ptr<Client>> candidates;
-    {
-        std::lock_guard lock(clients_mtx);
-        candidates = clients;
-    }
+    const auto candidates = snapshot(clients, clients_mtx);
 
     for (const auto& client : candidates) {
         std::lock_guard lock(client->m);
@@ -79,31 +102,27 @@ IPCServer::~IPCServer() {
 }
 
 void IPCServer::prune_clients() {
-    std::vector<std::shared_ptr<Client>> clients_;
+    const auto candidates = snapshot(clients, clients_mtx);
+
+    for (const auto& client : candidates) {
+        if (kill(client->pid, 0) != 0)
+            client->active.store(false);
+    }
+
+    std::vector<std::shared_ptr<Client>> retired;
     {
         std::lock_guard lock(clients_mtx);
-        clients_ = clients;
+        std::erase_if(clients, [&](const auto& client) {
+            if (client->active.load())
+                return false;
+            retired.push_back(client);
+            return true;
+        });
     }
 
-    int num_dead = 0;
-    for (auto& client : clients_) {
-        if (kill(client->pid, 0) != 0 || !client->active.load()) {
-            client->active.store(false);
-            num_dead++;
-        }
-    }
-
-    if (num_dead == 0) return;
-
-    std::lock_guard lock(clients_mtx);
-    for (auto it = clients.begin(); it != clients.end(); ) {
-        if (!(*it)->active.load()) {
-            SPDLOG_DEBUG("Client disconnected {}", (*it)->pid);
-            (*it)->stop_and_join();
-            it = clients.erase(it);
-        } else {
-            ++it;
-        }
+    for (const auto& client : retired) {
+        SPDLOG_DEBUG("Client disconnected {}", client->pid);
+        client->stop_and_join();
     }
 }
 
@@ -184,6 +203,7 @@ int IPCServer::on_request_fd(sd_bus_message *m, void *userdata, sd_bus_error *) 
 
 int IPCServer::on_get_clients(sd_bus_message *m, void *userdata, sd_bus_error *) {
     auto *self = static_cast<IPCServer *>(userdata);
+    self->record_server_request();
 
     auto json = self->server->metrics->clients_json_snapshot();
     return sd_bus_reply_method_return(m, "s", json.c_str());
@@ -191,6 +211,7 @@ int IPCServer::on_get_clients(sd_bus_message *m, void *userdata, sd_bus_error *)
 
 int IPCServer::on_get_system(sd_bus_message *m, void *userdata, sd_bus_error *) {
     auto *self = static_cast<IPCServer *>(userdata);
+    self->record_server_request();
 
     auto json = self->server->metrics->system_json_snapshot();
     return sd_bus_reply_method_return(m, "s", json.c_str());
@@ -200,7 +221,7 @@ void IPCServer::dbus_thread() {
     static const sd_bus_vtable vtable[] = {
         SD_BUS_VTABLE_START(0),
         SD_BUS_METHOD("request_fd", "", "h", IPCServer::on_request_fd, SD_BUS_VTABLE_UNPRIVILEGED),
-        SD_BUS_METHOD("is_blacklisted", "s", "b", IPCServer::on_is_blacklisted, SD_BUS_VTABLE_UNPRIVILEGED),
+        SD_BUS_METHOD("preflight", "s", "bt", IPCServer::on_preflight, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("get_clients", "", "s", IPCServer::on_get_clients, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("get_system", "", "s", IPCServer::on_get_system, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_VTABLE_END

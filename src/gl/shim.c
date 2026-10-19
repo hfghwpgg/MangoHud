@@ -273,38 +273,12 @@ static void save_and_consume_real_dlerror()
     memcpy(error_override, recent_error, error_length + 1);
 }
 
-typedef void* (*dlsym_fn)(void*, const char*);
-static dlsym_fn next_dlsym = NULL;
-
-static dlsym_fn get_next_dlsym(void)
-{
-    if (!next_dlsym)
-    {
-        next_dlsym = (dlsym_fn)real_dlsym(RTLD_NEXT, "dlsym");
-        if (!next_dlsym)
-            next_dlsym = real_dlsym;
-    }
-    return next_dlsym;
-}
-
-#if defined(__has_attribute)
-# if __has_attribute(musttail)
-#  define MUSTTAIL __attribute__((musttail))
-# endif
-#endif
-#ifndef MUSTTAIL
-# define MUSTTAIL
-#endif
-
-void* dlsym(void *handle, const char *name)
+MANGOHUD_DLSYM_ATTRIBUTES void* dlsym(void *handle, const char *name)
 {
     void *hook = find_hook(name);
 
-    // Tail call so the next dlsym sees our caller's return address, which
-    // RTLD_NEXT resolution depends on. Chaining to the next dlsym instead of
-    // libc's keeps other interposers (e.g. Steam's gameoverlayrenderer) working.
     if (!hook)
-        MUSTTAIL return get_next_dlsym()(handle, name);
+        MANGOHUD_MUSTTAIL return get_next_dlsym()(handle, name);
 
     save_and_consume_real_dlerror();
     // const char* dlsym_enabled = getenv("MANGOHUD_DLSYM");

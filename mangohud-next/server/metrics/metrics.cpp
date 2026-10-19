@@ -178,6 +178,18 @@ void Metrics::update_client() {
             metrics["REFRESH_FRAMETIME"] = {refresh_stats.avg_frametime(), "ms"};
             metrics["APP_FRAMETIME"] = {app_stats.avg_frametime(), "ms"};
             metrics["HUD_FRAMETIME"] = {hud_stats.avg_frametime(), "ms"};
+            const auto [frame_min, frame_max] = frame_stats.minmax_frametime();
+            const auto [refresh_min, refresh_max] = refresh_stats.minmax_frametime();
+            const auto [app_min, app_max] = app_stats.minmax_frametime();
+            const auto [hud_min, hud_max] = hud_stats.minmax_frametime();
+            metrics["FRAMETIME_MIN"] = {frame_min, "ms"};
+            metrics["FRAMETIME_MAX"] = {frame_max, "ms"};
+            metrics["REFRESH_FRAMETIME_MIN"] = {refresh_min, "ms"};
+            metrics["REFRESH_FRAMETIME_MAX"] = {refresh_max, "ms"};
+            metrics["APP_FRAMETIME_MIN"] = {app_min, "ms"};
+            metrics["APP_FRAMETIME_MAX"] = {app_max, "ms"};
+            metrics["HUD_FRAMETIME_MIN"] = {hud_min, "ms"};
+            metrics["HUD_FRAMETIME_MAX"] = {hud_max, "ms"};
             metrics["FRAMETIMES"] = {frame_stats.frametimes_copy()};
             metrics["REFRESH_FRAMETIMES"] = {refresh_stats.frametimes_copy()};
             metrics["APP_FRAMETIMES"] = {app_stats.frametimes_copy()};
@@ -398,10 +410,7 @@ void Metrics::assign_values(hudTable* t, pid_t pid, hudTable* render_table) {
                     else
                         out.unit = metric.unit;
 
-                    if (!vc.precision)
-                        format_into(out.text, "%.*f", 1, value);
-                    else
-                        format_into(out.text, "%.*f", vc.precision, value);
+                    format_into(out.text, "%.*f", vc.precision, value);
                 }
 
                 if (metric.val && std::holds_alternative<int>(*metric.val)) {

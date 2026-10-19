@@ -477,10 +477,13 @@ public:
     const VkAllocationCallbacks* pAllocator)
     {
         {
-            std::lock_guard lock(layer->swapchain_mtx);
+            std::unique_lock lock(layer->swapchain_mtx);
             auto it = layer->swapchains.find(swapchain);
-            if (it != layer->swapchains.end())
+            if (it != layer->swapchains.end()) {
+                if (layer->cached_swapchain.handle == swapchain)
+                    layer->cached_swapchain = {};
                 layer->swapchains.erase(it);
+            }
         }
 
         pDispatch->DestroySwapchainKHR(pDispatch->Device, swapchain, pAllocator);
@@ -558,7 +561,7 @@ public:
         if (pPresentInfo->swapchainCount > 1) {
             SPDLOG_DEBUG("QueuePresentKHR has {} swapchains; drawing overlay on index 0 and forwarding all swapchains",
                          pPresentInfo->swapchainCount);
-            std::lock_guard lock(layer->swapchain_mtx);
+            std::shared_lock lock(layer->swapchain_mtx);
             for (uint32_t i = 0; i < pPresentInfo->swapchainCount; i++) {
                 auto it = layer->swapchains.find(pPresentInfo->pSwapchains[i]);
                 if (it != layer->swapchains.end()) {
@@ -753,7 +756,7 @@ struct ForwardingOverrides {};
 VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL
 vkNegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface* version)
 {
-    if (IPCClient::is_blacklisted())
+    if (IPCClient::should_disable())
         return vkroots::NegotiateLoaderLayerInterfaceVersion<
             ForwardingOverrides, vkroots::NoOverrides, ForwardingOverrides>(version);
 
