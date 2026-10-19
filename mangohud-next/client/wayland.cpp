@@ -16,6 +16,8 @@ Wayland::~Wayland()
         thread.join();
 
     destroy_wayland_objects();
+    if (xkb_ctx)
+        xkb_context_unref(xkb_ctx);
 }
 
 void Wayland::release_app_feedback_request()
@@ -244,22 +246,22 @@ void Wayland::on_seat_name(void* data, wl_seat*, const char* name)
     SPDLOG_DEBUG("wl seat name: registry_name={} seat={}", seat->registry_name, snapshot.identifier);
 }
 
-static xkb_context* xkb_ctx()
-{
-    static xkb_context* ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    return ctx;
-}
-
 void Wayland::on_keyboard_keymap(void* data, wl_keyboard*, uint32_t format, int32_t fd, uint32_t size)
 {
     auto* seat = static_cast<seat_data*>(data);
-    if (seat && format == WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 && xkb_ctx()) {
+    if (seat && seat->wayland && format == WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) {
         void* map = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
         if (map != MAP_FAILED) {
+            auto* wayland = seat->wayland;
+            std::lock_guard lock(wayland->xkb_m);
+            if (!wayland->xkb_ctx)
+                wayland->xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
             if (seat->keymap)
                 xkb_keymap_unref(seat->keymap);
-            seat->keymap = xkb_keymap_new_from_string(xkb_ctx(), static_cast<const char*>(map),
-                                                      XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+            seat->keymap = wayland->xkb_ctx
+                ? xkb_keymap_new_from_string(wayland->xkb_ctx, static_cast<const char*>(map),
+                                             XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS)
+                : nullptr;
             munmap(map, size);
         }
     }
@@ -610,6 +612,16 @@ std::shared_ptr<shm_buffer> Wayland::present(const std::shared_ptr<surface_data>
 
     if (surf_data->buffers.empty())
         return nullptr;
+
+    if (!ipc->hud_visible.load()) {
+        if (surf_data->attached) {
+            wl_surface_attach(surf_data->overlay_surf, nullptr, 0, 0);
+            wl_surface_commit(surf_data->overlay_surf);
+            wl_display_flush(surf_data->display);
+            surf_data->attached = false;
+        }
+        return nullptr;
+    }
 
     int idx = ipc->next_frame();
     if (idx < 0 || static_cast<size_t>(idx) >= surf_data->buffers.size())

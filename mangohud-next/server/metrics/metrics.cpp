@@ -336,15 +336,11 @@ void Metrics::populate_tables(const std::vector<std::shared_ptr<Client>>& client
             renderer = client->renderer.get();
         }
 
-        if (!renderer)
+        if (!renderer || !client->hud_visible.load())
             continue;
 
         HudConfig out;
         out.windows.clear();
-        if (!client->hud_visible.load()) {
-            renderer->set_hud(std::move(out));
-            continue;
-        }
         out.windows.reserve(local.windows.size());
 
         for (auto& window : local.windows) {

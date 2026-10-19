@@ -540,7 +540,7 @@ void OverlayGL::draw() {
             release_slot_to_server(ipc.get(), slot, fdinfo.dmabuf_buffer[slot].get());
     }
 
-    if (!inited)
+    if (!inited || !ipc->hud_visible.load())
         return;
 
     if (current_slot == -1)

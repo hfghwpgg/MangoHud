@@ -47,6 +47,9 @@ public:
     Fdinfo fdinfo;
     float fps_limit = 0;
     std::string toggle_hud;
+    // Bumped under m whenever toggle_hud changes.
+    std::atomic<uint64_t> toggle_hud_generation{0};
+    std::atomic<bool> hud_visible{true};
     int64_t renderMinor = -1;
     std::string pEngineName;
     std::string vulkanDriver;
@@ -100,7 +103,7 @@ public:
     void send_resolution(uint32_t width, uint32_t height);
     void send_spdlog(const int level, const char* file, const int line, const std::string& text);
     void send_import_failed();
-    void send_toggle_hud();
+    void toggle_hud_visible();
     void send_semaphores(std::vector<int> sema);
     static unique_fd export_dmabuf_sync_file(int dmabuf_fd, bool write = false);
     void frame_ready(int idx, unique_fd fd);
@@ -182,6 +185,7 @@ private:
     // Posted IPC work drains one buffer while producers fill the other.
     int push_queue();
     bool send_resolution_signal(uint32_t width, uint32_t height);
+    bool send_hud_visible_signal(bool visible);
     int request_fd_from_server();
     static int on_work_event(sd_event_source *s, int fd, uint32_t revents, void *userdata);
     template <class F>

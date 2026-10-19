@@ -51,7 +51,10 @@ int IPCClient::on_config(sd_bus_message* m, void* userdata, sd_bus_error*) {
     {
         std::lock_guard lock(self->m);
         self->fps_limit = fps_limit;
-        self->toggle_hud = toggle_hud;
+        if (self->toggle_hud != toggle_hud) {
+            self->toggle_hud = toggle_hud;
+            self->toggle_hud_generation.fetch_add(1, std::memory_order_release);
+        }
     }
 
     return 0;
@@ -429,6 +432,9 @@ bool IPCClient::on_connect() {
             sent_resolution_height = height;
         }
 
+        if (!hud_visible.load())
+            send_hud_visible_signal(false);
+
         return true;
     });
 
@@ -690,15 +696,25 @@ void IPCClient::send_import_failed() {
     });
 }
 
-void IPCClient::send_toggle_hud() {
+void IPCClient::toggle_hud_visible() {
+    bool visible = hud_visible.load();
+    while (!hud_visible.compare_exchange_weak(visible, !visible)) {}
+    visible = !visible;
+    SPDLOG_DEBUG("hud visible={}", visible);
+
     if (!connected.load())
         return;
 
-    post([this] {
-        int r = sd_bus_emit_signal(bus, kObjPath, kIface, "toggle_hud", "");
-        if (r < 0)
-            SPDLOG_ERROR("send_toggle_hud {} ({})", r, strerror(-r));
-    });
+    post([this, visible] { send_hud_visible_signal(visible); });
+}
+
+bool IPCClient::send_hud_visible_signal(bool visible) {
+    int r = sd_bus_emit_signal(bus, kObjPath, kIface, "hud_visible", "b", static_cast<int>(visible));
+    if (r < 0) {
+        SPDLOG_ERROR("send_hud_visible {} ({})", r, strerror(-r));
+        return false;
+    }
+    return true;
 }
 
 int IPCClient::on_work_event(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
