@@ -324,6 +324,9 @@ private:
     std::mutex surf_m;
     std::vector<std::unique_ptr<seat_data>> seats;
     std::mutex seats_m;
+    // xkb_context is not thread-safe; keymaps may be compiled from any thread dispatching the queue.
+    xkb_context* xkb_ctx = nullptr;
+    std::mutex xkb_m;
     std::shared_ptr<IPCClient> ipc;
     Fdinfo fdinfo;
     uint64_t imported_generation = 0;

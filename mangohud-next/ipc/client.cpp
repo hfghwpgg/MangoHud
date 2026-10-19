@@ -65,7 +65,7 @@ void Client::init(std::shared_ptr<Client>& shared) {
     setup_handshake("frame_ready", &frame_slot, &Client::on_frame, shared);
     setup_handshake("import_failed", &import_failed_slot,
                     &Client::on_import_failed, shared);
-    setup_handshake("toggle_hud", &toggle_hud_slot, &Client::on_toggle_hud, shared);
+    setup_handshake("hud_visible", &hud_visible_slot, &Client::on_hud_visible, shared);
 
     stop_eventfd = eventfd(0, EFD_CLOEXEC);
     if (stop_eventfd < 0) { set_dead(); return; }
@@ -596,7 +596,7 @@ Client::~Client() {
     sd_bus_slot_unref(spdlog_slot);
     sd_bus_slot_unref(frame_slot);
     sd_bus_slot_unref(import_failed_slot);
-    sd_bus_slot_unref(toggle_hud_slot);
+    sd_bus_slot_unref(hud_visible_slot);
 
     sd_event_source_disable_unref(stop_src);
     stop_src = nullptr;
@@ -775,14 +775,20 @@ int Client::on_import_failed(sd_bus_message* m, void* userdata, sd_bus_error*) {
     return 0;
 }
 
-int Client::on_toggle_hud(sd_bus_message*, void* userdata, sd_bus_error*) {
+int Client::on_hud_visible(sd_bus_message* m, void* userdata, sd_bus_error*) {
     auto* w = static_cast<std::weak_ptr<Client>*>(userdata);
     auto self = w->lock();
     if (!self)
         return 0;
 
-    bool visible = !self->hud_visible.load();
-    self->hud_visible.store(visible);
-    SPDLOG_DEBUG("client {} hud visible={}", self->pid, visible);
+    int visible = 1;
+    int r = sd_bus_message_read(m, "b", &visible);
+    if (r < 0) {
+        SPDLOG_ERROR("hud_visible parse: {} ({})", r, strerror(-r));
+        return 0;
+    }
+
+    self->hud_visible.store(visible != 0);
+    SPDLOG_DEBUG("client {} hud visible={}", self->pid, visible != 0);
     return 0;
 }

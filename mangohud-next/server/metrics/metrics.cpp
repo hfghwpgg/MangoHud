@@ -336,7 +336,7 @@ void Metrics::populate_tables(const std::vector<std::shared_ptr<Client>>& client
             renderer = client->renderer.get();
         }
 
-        if (!renderer)
+        if (!renderer || !client->hud_visible.load())
             continue;
 
         HudConfig out;

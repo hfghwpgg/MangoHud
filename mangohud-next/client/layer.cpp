@@ -588,13 +588,15 @@ public:
         fps_limiter->set_fps_limit(layer->ipc->fps_limit);
 
         layer->ipc->start(swapchain_image_count);
-        bool drew;
-        {
-            std::lock_guard lock(layer->overlay_vk->m);
-            drew = layer->overlay_vk->draw(pPresentInfo->pSwapchains[0], imageIndex, queue, pi);
+        bool drew = false;
+        if (layer->ipc->hud_visible.load()) {
+            {
+                std::lock_guard lock(layer->overlay_vk->m);
+                drew = layer->overlay_vk->draw(pPresentInfo->pSwapchains[0], imageIndex, queue, pi);
+            }
+            if (!drew)
+                return present(pPresentInfo);
         }
-        if (!drew)
-            return present(pPresentInfo);
 
         if (!present_limiter)
             present_limiter = std::make_unique<presentLimiter>(pDispatch->WaitForPresentKHR);
@@ -622,15 +624,16 @@ public:
             ids_ptr = tl_ids.data();
         }
 
-        VkSemaphore signal;
-        {
-            std::lock_guard lock(layer->overlay_vk->m);
-            signal = layer->ovl_res->overlay_done[imageIndex];
-        }
-
+        VkSemaphore signal = VK_NULL_HANDLE;
         VkPresentInfoKHR pi2 = *pPresentInfo;
-        pi2.waitSemaphoreCount = 1;
-        pi2.pWaitSemaphores = &signal;
+        if (drew) {
+            {
+                std::lock_guard lock(layer->overlay_vk->m);
+                signal = layer->ovl_res->overlay_done[imageIndex];
+            }
+            pi2.waitSemaphoreCount = 1;
+            pi2.pWaitSemaphores = &signal;
+        }
 
         VkResult r = present(&pi2);
 
