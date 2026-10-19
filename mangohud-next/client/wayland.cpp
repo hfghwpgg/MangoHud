@@ -4,6 +4,7 @@
 #include <cstring>
 #include <algorithm>
 #include <spdlog/spdlog.h>
+#include <sys/mman.h>
 #include <unistd.h>
 #include "mesa/os_time.h"
 #include "string_utils.h"
@@ -184,6 +185,7 @@ void Wayland::on_global(void* data, wl_globals& global, wl_registry* registry,
 
     seat->queue = global.queue;
     seat->display = global.display;
+    seat->wayland = wayland;
     seat->registry_name = name;
     wl_proxy_set_queue(reinterpret_cast<wl_proxy*>(seat->seat), global.queue);
     if (wl_seat_add_listener(seat->seat, &seat_listener, seat.get()) != 0) {
@@ -242,10 +244,43 @@ void Wayland::on_seat_name(void* data, wl_seat*, const char* name)
     SPDLOG_DEBUG("wl seat name: registry_name={} seat={}", seat->registry_name, snapshot.identifier);
 }
 
-void Wayland::on_keyboard_keymap(void*, wl_keyboard*, uint32_t, int32_t fd, uint32_t)
+static xkb_context* xkb_ctx()
 {
+    static xkb_context* ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    return ctx;
+}
+
+void Wayland::on_keyboard_keymap(void* data, wl_keyboard*, uint32_t format, int32_t fd, uint32_t size)
+{
+    auto* seat = static_cast<seat_data*>(data);
+    if (seat && format == WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 && xkb_ctx()) {
+        void* map = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
+        if (map != MAP_FAILED) {
+            if (seat->keymap)
+                xkb_keymap_unref(seat->keymap);
+            seat->keymap = xkb_keymap_new_from_string(xkb_ctx(), static_cast<const char*>(map),
+                                                      XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+            munmap(map, size);
+        }
+    }
+
     if (fd >= 0)
         close(fd);
+}
+
+void Wayland::on_keyboard_key(void* data, wl_keyboard*, uint32_t, uint32_t, uint32_t key, uint32_t state)
+{
+    auto* seat = static_cast<seat_data*>(data);
+    if (!seat || !seat->keymap)
+        return;
+
+    // Use the unmodified (level 0) keysym so modifiers held for a bind don't change the other keys.
+    const xkb_keysym_t* syms = nullptr;
+    if (xkb_keymap_key_get_syms_by_level(seat->keymap, key + 8, 0, 0, &syms) < 1)
+        return;
+
+    if (seat->wayland && seat->wayland->ipc)
+        seat->keys.update(*seat->wayland->ipc, syms[0], state == WL_KEYBOARD_KEY_STATE_PRESSED);
 }
 
 void Wayland::on_keyboard_enter(void* data, wl_keyboard*, uint32_t serial, wl_surface* surface, wl_array*)
@@ -270,6 +305,7 @@ void Wayland::on_keyboard_leave(void* data, wl_keyboard*, uint32_t serial, wl_su
     SPDLOG_DEBUG("wl keyboard leave: seat={} serial={} surface=0x{:x}",
                  seat ? seat->identifier() : "unknown", serial, (uint64_t)surface);
     if (seat) {
+        seat->keys.clear();
         auto snapshot = seat->set_keyboard(false, os_time_get_nano());
         SPDLOG_DEBUG("wl focus signal: keyboard=false keyboard_entered={} pointer_entered={} presentation={} focused={} seat={}",
                      snapshot.focus.keyboard.active,

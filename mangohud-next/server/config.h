@@ -167,6 +167,7 @@ private:
         {"fps_limit", Spec{Double, 0.0}},
         {"output", Spec{String, std::string("app")}},
         {"remember_focus", Spec{Bool, false}},
+        {"toggle_hud", Spec{String, std::string("Shift_R+F12")}},
     };
 
     const Value& raw(std::string_view key) const

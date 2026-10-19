@@ -40,7 +40,8 @@ void X11::set_window(xcb_window_t next_window, const char* next_display)
     }
 
     const uint32_t mask = XCB_EVENT_MASK_FOCUS_CHANGE | XCB_EVENT_MASK_ENTER_WINDOW |
-                          XCB_EVENT_MASK_LEAVE_WINDOW;
+                          XCB_EVENT_MASK_LEAVE_WINDOW | XCB_EVENT_MASK_KEY_PRESS |
+                          XCB_EVENT_MASK_KEY_RELEASE;
     auto cookie = xcb_change_window_attributes_checked(connection, window, XCB_CW_EVENT_MASK, &mask);
     auto* error = xcb_request_check(connection, cookie);
     if (error) {
@@ -49,6 +50,8 @@ void X11::set_window(xcb_window_t next_window, const char* next_display)
         return;
     }
     xcb_flush(connection);
+    keys.clear();
+    load_keymap();
     auto* focus = xcb_get_input_focus_reply(connection, xcb_get_input_focus(connection), nullptr);
     if (focus) {
         ipc->x11_focused.store(focus->focus == window);
@@ -65,11 +68,14 @@ void X11::dispatch_events()
         return;
     }
 
-    while (auto* event = xcb_poll_for_event(connection)) {
+    xcb_generic_event_t* next = nullptr;
+    while (auto* event = next ? next : xcb_poll_for_event(connection)) {
+        next = nullptr;
         switch (event->response_type & 0x7f) {
             case XCB_FOCUS_IN:
             case XCB_FOCUS_OUT: {
                 auto* focus = reinterpret_cast<xcb_focus_in_event_t*>(event);
+                keys.clear();
                 // Grabs are temporary routing changes, not application focus changes.
                 if (focus->detail != XCB_NOTIFY_DETAIL_INFERIOR &&
                     (focus->mode == XCB_NOTIFY_MODE_NORMAL || focus->mode == XCB_NOTIFY_MODE_WHILE_GRABBED))
@@ -87,7 +93,56 @@ void X11::dispatch_events()
                              crossing->event, crossing->mode, crossing->detail);
                 break;
             }
+            case XCB_KEY_PRESS:
+            case XCB_KEY_RELEASE: {
+                auto* key = reinterpret_cast<xcb_key_press_event_t*>(event);
+                bool pressed = (event->response_type & 0x7f) == XCB_KEY_PRESS;
+                if (!pressed) {
+                    // Auto-repeat sends a release immediately followed by a press with the same timestamp.
+                    next = xcb_poll_for_queued_event(connection);
+                    auto* repeat = reinterpret_cast<xcb_key_press_event_t*>(next);
+                    if (next && (next->response_type & 0x7f) == XCB_KEY_PRESS &&
+                        repeat->detail == key->detail && repeat->time == key->time) {
+                        std::free(next);
+                        next = nullptr;
+                        break;
+                    }
+                }
+                keys.update(*ipc, keysym(key->detail), pressed);
+                break;
+            }
+            case XCB_MAPPING_NOTIFY:
+                load_keymap();
+                break;
         }
         std::free(event);
     }
+}
+
+void X11::load_keymap()
+{
+    keysyms.clear();
+    const auto* setup = xcb_get_setup(connection);
+    min_keycode = setup->min_keycode;
+    uint8_t count = setup->max_keycode - setup->min_keycode + 1;
+    auto* reply = xcb_get_keyboard_mapping_reply(
+        connection, xcb_get_keyboard_mapping(connection, min_keycode, count), nullptr);
+    if (!reply) {
+        SPDLOG_ERROR("x11: failed to get keyboard mapping");
+        return;
+    }
+
+    // The first keysym of each keycode is its unmodified symbol.
+    auto* syms = xcb_get_keyboard_mapping_keysyms(reply);
+    int per_keycode = reply->keysyms_per_keycode;
+    for (int i = 0; i < count; i++)
+        keysyms.push_back(per_keycode > 0 ? syms[i * per_keycode] : XKB_KEY_NoSymbol);
+    std::free(reply);
+}
+
+xkb_keysym_t X11::keysym(xcb_keycode_t keycode) const
+{
+    if (keycode < min_keycode || keycode - min_keycode >= static_cast<int>(keysyms.size()))
+        return XKB_KEY_NoSymbol;
+    return keysyms[keycode - min_keycode];
 }

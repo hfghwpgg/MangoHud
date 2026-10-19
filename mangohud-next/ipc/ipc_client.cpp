@@ -41,7 +41,8 @@ int IPCClient::on_config(sd_bus_message* m, void* userdata, sd_bus_error*) {
     SPDLOG_DEBUG("got config");
     auto* self = static_cast<IPCClient*>(userdata);
     double fps_limit = 0;
-    int r = sd_bus_message_read(m, "d", &fps_limit);
+    const char* toggle_hud = "";
+    int r = sd_bus_message_read(m, "ds", &fps_limit, &toggle_hud);
     if (r < 0) {
         SPDLOG_ERROR("config parse: {} ({})", r, strerror(-r));
         return 0;
@@ -50,6 +51,7 @@ int IPCClient::on_config(sd_bus_message* m, void* userdata, sd_bus_error*) {
     {
         std::lock_guard lock(self->m);
         self->fps_limit = fps_limit;
+        self->toggle_hud = toggle_hud;
     }
 
     return 0;
@@ -685,6 +687,17 @@ void IPCClient::send_import_failed() {
             SPDLOG_ERROR("send_import_failed {} ({})", r, strerror(-r));
             sd_event_exit(event, 0);
         }
+    });
+}
+
+void IPCClient::send_toggle_hud() {
+    if (!connected.load())
+        return;
+
+    post([this] {
+        int r = sd_bus_emit_signal(bus, kObjPath, kIface, "toggle_hud", "");
+        if (r < 0)
+            SPDLOG_ERROR("send_toggle_hud {} ({})", r, strerror(-r));
     });
 }
 

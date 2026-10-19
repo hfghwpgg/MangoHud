@@ -166,6 +166,7 @@ public:
     sd_bus* bus;
     sd_bus_slot* slot;
     std::atomic<bool> active {true};
+    std::atomic<bool> hud_visible {true};
     std::atomic<uint64_t> hud_seq{0};
     std::atomic<bool> stop {false};
 
@@ -201,6 +202,7 @@ private:
     sd_bus_slot* spdlog_slot = nullptr;
     sd_bus_slot* frame_slot = nullptr;
     sd_bus_slot* import_failed_slot = nullptr;
+    sd_bus_slot* toggle_hud_slot = nullptr;
     sd_event* event = nullptr;
     sd_event_source* stop_src = nullptr;
     sd_event_source* work_src = nullptr;
@@ -225,6 +227,7 @@ private:
     static int spdlog_msg(sd_bus_message* m, void* userdata, sd_bus_error*);
     static int on_frame(sd_bus_message* m, void* userdata, sd_bus_error*);
     static int on_import_failed(sd_bus_message* m, void* userdata, sd_bus_error*);
+    static int on_toggle_hud(sd_bus_message* m, void* userdata, sd_bus_error*);
     static int on_bus_disconnected(sd_bus_message *m, void *userdata, sd_bus_error *ret_error);
     static int on_stop_event(sd_event_source *s, int fd, uint32_t revents, void *userdata);
     static int on_work_event(sd_event_source *s, int fd, uint32_t revents, void *userdata);

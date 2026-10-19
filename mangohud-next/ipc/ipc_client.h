@@ -46,6 +46,7 @@ public:
     std::mutex m;
     Fdinfo fdinfo;
     float fps_limit = 0;
+    std::string toggle_hud;
     int64_t renderMinor = -1;
     std::string pEngineName;
     std::string vulkanDriver;
@@ -99,6 +100,7 @@ public:
     void send_resolution(uint32_t width, uint32_t height);
     void send_spdlog(const int level, const char* file, const int line, const std::string& text);
     void send_import_failed();
+    void send_toggle_hud();
     void send_semaphores(std::vector<int> sema);
     static unique_fd export_dmabuf_sync_file(int dmabuf_fd, bool write = false);
     void frame_ready(int idx, unique_fd fd);

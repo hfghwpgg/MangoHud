@@ -65,6 +65,7 @@ void Client::init(std::shared_ptr<Client>& shared) {
     setup_handshake("frame_ready", &frame_slot, &Client::on_frame, shared);
     setup_handshake("import_failed", &import_failed_slot,
                     &Client::on_import_failed, shared);
+    setup_handshake("toggle_hud", &toggle_hud_slot, &Client::on_toggle_hud, shared);
 
     stop_eventfd = eventfd(0, EFD_CLOEXEC);
     if (stop_eventfd < 0) { set_dead(); return; }
@@ -453,11 +454,12 @@ void Client::send_dmabuf_ipc(const std::vector<BufferSet>& buffers, uint32_t wid
 
 void Client::send_config() {
     const double fps_limit = server->config->get<double>("fps_limit");
+    const std::string toggle_hud = server->config->get<std::string>("toggle_hud");
     auto self = self_weak.lock();
     if (!self)
         return;
 
-    post([self, fps_limit]() {
+    post([self, fps_limit, toggle_hud]() {
         sd_bus_message* msg = nullptr;
 
         int r = sd_bus_message_new_signal(self->bus, &msg, kObjPath, kIface, "config");
@@ -467,8 +469,8 @@ void Client::send_config() {
             return r;
         }
 
-        r = sd_bus_message_append(msg, "d", fps_limit);
-        SPDLOG_DEBUG("sent fps_limit: {}", fps_limit);
+        r = sd_bus_message_append(msg, "ds", fps_limit, toggle_hud.c_str());
+        SPDLOG_DEBUG("sent fps_limit: {} toggle_hud: {}", fps_limit, toggle_hud);
 
         if (r < 0) {
             SPDLOG_DEBUG("failed to append to message {}", r);
@@ -594,6 +596,7 @@ Client::~Client() {
     sd_bus_slot_unref(spdlog_slot);
     sd_bus_slot_unref(frame_slot);
     sd_bus_slot_unref(import_failed_slot);
+    sd_bus_slot_unref(toggle_hud_slot);
 
     sd_event_source_disable_unref(stop_src);
     stop_src = nullptr;
@@ -769,5 +772,17 @@ int Client::on_import_failed(sd_bus_message* m, void* userdata, sd_bus_error*) {
 
     if (self->renderer)
         self->renderer->method_failed();
+    return 0;
+}
+
+int Client::on_toggle_hud(sd_bus_message*, void* userdata, sd_bus_error*) {
+    auto* w = static_cast<std::weak_ptr<Client>*>(userdata);
+    auto self = w->lock();
+    if (!self)
+        return 0;
+
+    bool visible = !self->hud_visible.load();
+    self->hud_visible.store(visible);
+    SPDLOG_DEBUG("client {} hud visible={}", self->pid, visible);
     return 0;
 }

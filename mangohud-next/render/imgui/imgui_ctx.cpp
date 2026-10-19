@@ -1011,7 +1011,9 @@ bool ImGuiCtx::draw(uint32_t w, uint32_t h, Resolution& size, BufferSet* buf, Ba
         max_y = std::max(max_y, window.position.y + (float)window_h);
     }
 
-    size = {(uint32_t)std::ceil(max_x), (uint32_t)std::ceil(max_y)};
+    // A hidden HUD has no windows; keep the current buffer size instead of shrinking to 0x0.
+    if (!windows.empty())
+        size = {(uint32_t)std::ceil(max_x), (uint32_t)std::ceil(max_y)};
 
     ImGui::Render();
 
