@@ -30,6 +30,7 @@ vulkan_layer = shared_library(
                    vulkan_wsi_deps,
                    dep_x11,
                    xcb_dep,
+                   dependency('xkbcommon'),
                    spdlog_dep,
                    vkroots_dep,
                    ipc_dep,

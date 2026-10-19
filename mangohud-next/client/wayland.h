@@ -3,6 +3,7 @@
 #include <EGL/egl.h>
 #include <wayland-client.h>
 #include <vulkan.h>
+#include <xkbcommon/xkbcommon.h>
 
 #include <atomic>
 #include <cstdint>
@@ -18,6 +19,7 @@
 #include "../server/common/helpers.hpp"
 #include "../ipc/ipc_client.h"
 #include "../wayland/wayland_ctx.h"
+#include "keybinds.h"
 
 class Wayland;
 
@@ -70,6 +72,9 @@ struct seat_data {
     wl_keyboard* keyboard = nullptr;
     wl_event_queue* queue = nullptr;
     wl_display* display = nullptr;
+    Wayland* wayland = nullptr;
+    xkb_keymap* keymap = nullptr;
+    KeyState keys;
     uint32_t registry_name = 0;
     std::string seat_name;
     focus_state focus;
@@ -125,6 +130,11 @@ struct seat_data {
         else
             wl_keyboard_destroy(keyboard);
         keyboard = nullptr;
+        if (keymap) {
+            xkb_keymap_unref(keymap);
+            keymap = nullptr;
+        }
+        keys.clear();
     }
 
     void destroy() {
@@ -338,10 +348,10 @@ private:
     static void on_global_remove(void* data, wl_globals& global, uint32_t name);
     static void on_seat_capabilities(void* data, wl_seat*, uint32_t capabilities);
     static void on_seat_name(void* data, wl_seat*, const char* name);
-    static void on_keyboard_keymap(void*, wl_keyboard*, uint32_t, int32_t fd, uint32_t);
+    static void on_keyboard_keymap(void* data, wl_keyboard*, uint32_t format, int32_t fd, uint32_t size);
     static void on_keyboard_enter(void* data, wl_keyboard*, uint32_t, wl_surface*, wl_array*);
     static void on_keyboard_leave(void* data, wl_keyboard*, uint32_t, wl_surface*);
-    static void on_keyboard_key(void*, wl_keyboard*, uint32_t, uint32_t, uint32_t, uint32_t) {}
+    static void on_keyboard_key(void* data, wl_keyboard*, uint32_t, uint32_t, uint32_t key, uint32_t state);
     static void on_keyboard_modifiers(void*, wl_keyboard*, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) {}
     static void on_keyboard_repeat_info(void*, wl_keyboard*, int32_t, int32_t) {}
     static void on_preferred_scale(void* data, wp_fractional_scale_v1*, uint32_t scale);
